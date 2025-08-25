@@ -39,8 +39,18 @@
       "properties": {
         "raas.serverUrl": {
           "type": "string",
-          "default": "http://localhost:8000/api/v1",
+          "default": "http://localhost:8000",
           "description": "Base URL to your RaaS API (e.g. http://localhost:8000/api/v1)"
+        },
+        "raas.chatPath": {
+          "type":"string",
+          "default":"/api/v1/chat/form",
+           "description": "Path or full URL for chat-with-files endpoint."
+        },
+        "raas.completionPath":{
+          "type": "string",
+          "default": "/api/v1/code-completion",
+          "description": "Path or full URL for code-completion endpoint."
         },
         "raas.timeout": {
           "type": "number",

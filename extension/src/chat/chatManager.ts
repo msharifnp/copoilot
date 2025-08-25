@@ -1,4 +1,3 @@
-// src/chat/chatManager.ts
 import { apiClient, UploadFilePart } from "../apiClient";
 
 class ChatManager {

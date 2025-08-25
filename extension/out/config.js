@@ -35,16 +35,35 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.config = void 0;
 const vscode = __importStar(require("vscode"));
+function cleanBase(u) { return u.replace(/\/+$/, ""); }
+function cleanPath(p) { return p.startsWith("/") ? p : `/${p}`; }
 exports.config = {
     get endpoint() {
-        const raw = vscode.workspace.getConfiguration("raas").get("serverUrl", "http://localhost:8000/api/v1");
-        return raw.replace(/\/+$/, ""); // strip trailing slash
+        const base = vscode.workspace.getConfiguration("raas")
+            .get("serverUrl", "http://localhost:8000");
+        return cleanBase(base);
+    },
+    get chatPath() {
+        return vscode.workspace.getConfiguration("raas")
+            .get("chatPath", "/api/v1/chat/form");
+    },
+    get completionPath() {
+        return vscode.workspace.getConfiguration("raas")
+            .get("completionPath", "/api/v1/code-completion");
     },
     get timeout() {
-        return vscode.workspace.getConfiguration("raas").get("timeout", 10000);
+        return vscode.workspace.getConfiguration("raas")
+            .get("timeout", 10000);
     },
     get debounceMs() {
-        return vscode.workspace.getConfiguration("raas").get("debounceMs", 300);
+        return vscode.workspace.getConfiguration("raas")
+            .get("debounceMs", 300);
+    },
+    /** Returns a full URL for either a relative path or an absolute override */
+    toUrl(pathOrUrl) {
+        if (/^https?:\/\//i.test(pathOrUrl))
+            return pathOrUrl; // absolute override
+        return this.endpoint + cleanPath(pathOrUrl); // join to base
     }
 };
 //# sourceMappingURL=config.js.map

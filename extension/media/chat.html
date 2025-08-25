@@ -1,73 +1,56 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-  <meta charset="UTF-8" />
-  <title>RaaS Chat</title>
-  <link rel="stylesheet" href="{{chat_css}}" />
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="{{styles}}">
 </head>
 <body>
-  <div id="top">
-    <button id="new">New</button>
-    <button id="list">Sessions</button>
-    <button id="load">Load</button>
-    <button id="close">Close</button>
-  </div>
-
-  <div id="chat">
-    <div class="message bot">🚀 RaaS Chat ready!</div>
-  </div>
-
-  <div id="inputArea">
-    <textarea id="input" rows="2" placeholder="Ask something…"></textarea>
-    <button id="attach">📎</button>
+  <div id="chat"><div class="msg bot">🚀 RaaS Chat ready!</div></div>
+  <div id="inputRow">
+    <textarea id="input" rows="2" placeholder="Type here…"></textarea>
+    <button id="clip" title="Attach files">📎</button>
     <button id="send">Send</button>
   </div>
-
   <script>
     const vscode = acquireVsCodeApi();
+    let pickFile = false;
+
     const chat = document.getElementById('chat');
     const input = document.getElementById('input');
+    const send = document.getElementById('send');
+    const clip = document.getElementById('clip');
 
-    function push(text, cls) {
+    function push(text, cls){
       const d = document.createElement('div');
-      d.className = 'message ' + (cls || '');
+      d.className = 'msg '+cls;
       d.textContent = text;
       chat.appendChild(d);
       chat.scrollTop = chat.scrollHeight;
     }
 
-    document.getElementById('send').onclick = () => {
-      const t = input.value.trim(); if (!t) return;
-      push(t, 'user');
+    function sendMsg(){
+      const text = input.value.trim();
+      if(!text) return;
+      push(text, 'user');
       input.value = '';
-      push('Generating…', 'note');
-      vscode.postMessage({ type: 'chat:send', text: t });
-    };
+      push('Generating…', 'bot load');
+      vscode.postMessage({ type: 'chat', text, pickFile });
+      pickFile = false;
+    }
 
-    document.getElementById('attach').onclick = () => {
-      const t = input.value.trim();
-      push(t || '[files attached]', 'user');
-      vscode.postMessage({ type: 'chat:sendWithFiles', text: t });
-    };
+    send.onclick = sendMsg;
+    input.addEventListener('keydown', e => {
+      if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMsg(); }
+    });
+    clip.onclick = () => { pickFile = true; sendMsg(); };
 
-    document.getElementById('new').onclick  = () => vscode.postMessage({ type: 'session:new' });
-    document.getElementById('list').onclick = () => vscode.postMessage({ type: 'session:list' });
-    document.getElementById('load').onclick = () => {
-      const id = prompt('Enter session id to load:'); if (id) vscode.postMessage({ type: 'session:load', id });
-    };
-    document.getElementById('close').onclick = () => vscode.postMessage({ type: 'session:close' });
-
-    window.addEventListener('message', (e) => {
-      const m = e.data || {};
-      if (m.type === 'chat:response') {
+    window.addEventListener('message', ev => {
+      const m = ev.data || {};
+      if(m.type==='response'){
         const last = chat.lastElementChild;
-        if (last && last.textContent === 'Generating…') last.remove();
-        push(m.text, m.ok ? 'bot' : 'err');
+        if(last && last.classList.contains('load')) last.remove();
+        push(m.text, m.success ? 'bot' : 'err');
       }
-      if (m.type === 'session:list')   push('Sessions: ' + JSON.stringify(m.items), 'note');
-      if (m.type === 'session:active') push('Active session: ' + m.id, 'note');
-      if (m.type === 'session:closed') push('Session closed', 'note');
-      if (m.type === 'error')          push('Error: ' + m.text, 'err');
     });
   </script>
 </body>

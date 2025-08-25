@@ -34,7 +34,6 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RaaSInlineCompletionProvider = void 0;
-// src/completion/inlineProvider.ts
 const vscode = __importStar(require("vscode"));
 const apiClient_1 = require("../apiClient");
 const config_1 = require("../config");

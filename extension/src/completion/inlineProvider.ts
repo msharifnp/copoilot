@@ -1,4 +1,3 @@
-// src/completion/inlineProvider.ts
 import * as vscode from "vscode";
 import { apiClient } from "../apiClient";
 import { config } from "../config";

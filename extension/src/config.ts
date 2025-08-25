@@ -1,14 +1,34 @@
 import * as vscode from "vscode";
 
+function cleanBase(u: string) { return u.replace(/\/+$/, ""); }
+function cleanPath(p: string)  { return p.startsWith("/") ? p : `/${p}`; }
+
 export const config = {
   get endpoint(): string {
-    const raw = vscode.workspace.getConfiguration("raas").get<string>("serverUrl", "http://localhost:8000/api/v1");
-    return raw.replace(/\/+$/, ""); // strip trailing slash
+    const base = vscode.workspace.getConfiguration("raas")
+      .get<string>("serverUrl", "http://localhost:8000");
+    return cleanBase(base);
+  },
+  get chatPath(): string {
+    return vscode.workspace.getConfiguration("raas")
+      .get<string>("chatPath", "/api/v1/chat/form");
+  },
+  get completionPath(): string {
+    return vscode.workspace.getConfiguration("raas")
+      .get<string>("completionPath", "/api/v1/code-completion");
   },
   get timeout(): number {
-    return vscode.workspace.getConfiguration("raas").get<number>("timeout", 10000);
+    return vscode.workspace.getConfiguration("raas")
+      .get<number>("timeout", 10000);
   },
   get debounceMs(): number {
-    return vscode.workspace.getConfiguration("raas").get<number>("debounceMs", 300);
+    return vscode.workspace.getConfiguration("raas")
+      .get<number>("debounceMs", 300);
+  },
+
+  /** Returns a full URL for either a relative path or an absolute override */
+  toUrl(pathOrUrl: string): string {
+    if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl; // absolute override
+    return this.endpoint + cleanPath(pathOrUrl);           // join to base
   }
 };

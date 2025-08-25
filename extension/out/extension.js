@@ -41,28 +41,17 @@ const completionProvider_1 = require("./completion/completionProvider");
 const inlineProvider_1 = require("./completion/inlineProvider");
 function activate(ctx) {
     console.log("[RaaS] activate()");
-    const chatProvider = new chatViewProviders_1.RaasChatViewProvider(ctx.extensionUri);
-    const completionProvider = new completionProvider_1.RaaSCompletionProvider();
-    const langs = ["python", "javascript", "typescript", "java", "cpp", "c", "go", "rust"];
-    ctx.subscriptions.push(vscode.window.registerWebviewViewProvider("raasChatView", chatProvider), vscode.languages.registerCompletionItemProvider(langs, completionProvider, ".", " ", "\n", "\t"), vscode.commands.registerCommand("raas.openChat", () => vscode.commands.executeCommand("workbench.view.extension.raasChat")), vscode.languages.registerInlineCompletionItemProvider([{ language: "python" }, { language: "javascript" }, { language: "typescript" }, { language: "java" }, { language: "cpp" }, { language: "c" }], new inlineProvider_1.RaaSInlineCompletionProvider()));
+    ctx.subscriptions.push(vscode.window.registerWebviewViewProvider("raasChatView", new chatViewProviders_1.RaasChatViewProvider(ctx.extensionUri)), vscode.commands.registerCommand("raas.openChat", () => vscode.commands.executeCommand("workbench.view.extension.raasChat")), 
+    // Completions (menu)
+    vscode.languages.registerCompletionItemProvider([
+        { language: "python" }, { language: "javascript" }, { language: "typescript" },
+        { language: "java" }, { language: "cpp" }, { language: "c" }
+    ], new completionProvider_1.RaaSCompletionProvider(), ".", " ", "\n", "\t"), 
+    // Inline (ghost text)
+    vscode.languages.registerInlineCompletionItemProvider([
+        { language: "python" }, { language: "javascript" }, { language: "typescript" },
+        { language: "java" }, { language: "cpp" }, { language: "c" }
+    ], new inlineProvider_1.RaaSInlineCompletionProvider()));
 }
 function deactivate() { }
-// import * as vscode from "vscode";
-// import { RaasChatViewProvider } from "./chat/chatViewProviders";
-// export function activate(ctx: vscode.ExtensionContext) {
-//   console.log("[RaaS] activate() - TESTING");
-//   try {
-//     const chatProvider = new RaasChatViewProvider(ctx.extensionUri);
-//     console.log("[RaaS] ChatProvider created successfully");
-//     const disposable = vscode.window.registerWebviewViewProvider("raasChatView", chatProvider);
-//     console.log("[RaaS] WebviewViewProvider registered");
-//     ctx.subscriptions.push(disposable);
-//     console.log("[RaaS] Extension fully activated");
-//   } catch (error) {
-//     console.error("[RaaS] Activation failed:", error);
-//   }
-// }
-// export function deactivate() {
-//   console.log("[RaaS] deactivate()");
-// }
 //# sourceMappingURL=extension.js.map

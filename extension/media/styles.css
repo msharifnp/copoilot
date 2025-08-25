@@ -1,76 +1,11 @@
-/* media/styles.css */
-body {
-  font-family: var(--vscode-font-family);
-  background: var(--vscode-editor-background);
-  color: var(--vscode-foreground);
-  margin: 0;
-  padding: 8px;
-}
-
-#chat {
-  max-height: 300px;
-  overflow-y: auto;
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 4px;
-  padding: 8px;
-  margin-bottom: 8px;
-  background: var(--vscode-editor-background);
-}
-
-.msg {
-  margin: 4px 0;
-  padding: 6px 8px;
-  border-radius: 4px;
-  word-wrap: break-word;
-}
-
-.msg.user {
-  background: var(--vscode-inputValidation-infoBorder);
-  text-align: right;
-}
-
-.msg.bot {
-  background: var(--vscode-badge-background);
-}
-
-.msg.err {
-  background: var(--vscode-inputValidation-errorBackground);
-  color: var(--vscode-inputValidation-errorForeground);
-}
-
-.msg.load {
-  font-style: italic;
-  opacity: 0.7;
-}
-
-#inputRow {
-  display: flex;
-  gap: 4px;
-  align-items: flex-end;
-}
-
-#input {
-  flex: 1;
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-input-border);
-  border-radius: 2px;
-  padding: 4px;
-  font-family: inherit;
-  resize: vertical;
-  min-height: 32px;
-}
-
-button {
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  border: none;
-  border-radius: 2px;
-  padding: 6px 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-button:hover {
-  background: var(--vscode-button-hoverBackground);
-}
+body { margin:0; background:#1e1e1e; color:#ddd; font-family: Segoe UI, sans-serif; }
+#chat { height: calc(100vh - 120px); overflow:auto; padding:12px; }
+#inputRow { display:flex; gap:8px; padding:8px; border-top:1px solid #444; }
+#input { flex:1; background:#333; color:#fff; border:none; border-radius:6px; padding:10px; }
+button { background:#0e639c; color:#fff; border:none; padding:10px 14px; border-radius:6px; cursor:pointer; }
+#clip { background:#333; }
+.msg { margin:10px 0; padding:8px 12px; border-radius:8px; background:#2b2b2b; }
+.msg.user { border-left:3px solid #0e639c; }
+.msg.bot  { border-left:3px solid #4a90e2; }
+.msg.load { opacity:.7; font-style:italic; }
+.msg.err  { border-left:3px solid #b23; background:#3a1f1f; color:#ffbbbb; }
