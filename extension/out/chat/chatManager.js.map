@@ -1,0 +1,1 @@
+{"version":3,"file":"chatManager.js","sourceRoot":"","sources":["../../src/chat/chatManager.ts"],"names":[],"mappings":";;;AAAA,0BAA0B;AAC1B,4CAAyD;AAEzD,MAAM,WAAW;IACf,KAAK,CAAC,IAAI,CAAC,IAAY,EAAE,QAA0B,EAAE;QACnD,OAAO,qBAAS,CAAC,YAAY,CAAC,IAAI,EAAE,KAAK,CAAC,CAAC;IAC7C,CAAC;CACF;AAEY,QAAA,WAAW,GAAG,IAAI,WAAW,EAAE,CAAC"}

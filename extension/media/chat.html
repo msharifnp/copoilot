@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>RaaS Chat</title>
+  <link rel="stylesheet" href="{{chat_css}}" />
+</head>
+<body>
+  <div id="top">
+    <button id="new">New</button>
+    <button id="list">Sessions</button>
+    <button id="load">Load</button>
+    <button id="close">Close</button>
+  </div>
+
+  <div id="chat">
+    <div class="message bot">🚀 RaaS Chat ready!</div>
+  </div>
+
+  <div id="inputArea">
+    <textarea id="input" rows="2" placeholder="Ask something…"></textarea>
+    <button id="attach">📎</button>
+    <button id="send">Send</button>
+  </div>
+
+  <script>
+    const vscode = acquireVsCodeApi();
+    const chat = document.getElementById('chat');
+    const input = document.getElementById('input');
+
+    function push(text, cls) {
+      const d = document.createElement('div');
+      d.className = 'message ' + (cls || '');
+      d.textContent = text;
+      chat.appendChild(d);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    document.getElementById('send').onclick = () => {
+      const t = input.value.trim(); if (!t) return;
+      push(t, 'user');
+      input.value = '';
+      push('Generating…', 'note');
+      vscode.postMessage({ type: 'chat:send', text: t });
+    };
+
+    document.getElementById('attach').onclick = () => {
+      const t = input.value.trim();
+      push(t || '[files attached]', 'user');
+      vscode.postMessage({ type: 'chat:sendWithFiles', text: t });
+    };
+
+    document.getElementById('new').onclick  = () => vscode.postMessage({ type: 'session:new' });
+    document.getElementById('list').onclick = () => vscode.postMessage({ type: 'session:list' });
+    document.getElementById('load').onclick = () => {
+      const id = prompt('Enter session id to load:'); if (id) vscode.postMessage({ type: 'session:load', id });
+    };
+    document.getElementById('close').onclick = () => vscode.postMessage({ type: 'session:close' });
+
+    window.addEventListener('message', (e) => {
+      const m = e.data || {};
+      if (m.type === 'chat:response') {
+        const last = chat.lastElementChild;
+        if (last && last.textContent === 'Generating…') last.remove();
+        push(m.text, m.ok ? 'bot' : 'err');
+      }
+      if (m.type === 'session:list')   push('Sessions: ' + JSON.stringify(m.items), 'note');
+      if (m.type === 'session:active') push('Active session: ' + m.id, 'note');
+      if (m.type === 'session:closed') push('Session closed', 'note');
+      if (m.type === 'error')          push('Error: ' + m.text, 'err');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+{
+  "name": "raas-integrated",
+  "displayName": "RaaS - AI Code Completion & Chat",
+  "description": "AI-powered code completion and chat interface using your custom RaaS API",
+  "version": "1.0.0",
+  "engines": { "vscode": ">=1.85.0" },
+  "categories": ["Machine Learning", "Other"],
+  "keywords": ["ai", "code completion", "autocomplete", "chat", "raas"],
+  "main": "./out/extension.js",
+
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:raasChatView",
+    "onCommand:raas.openChat",
+    "onLanguage:python",
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:java",
+    "onLanguage:cpp",
+    "onLanguage:c"
+  ],
+
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "raasChat", "title": "RaaS Chat", "icon": "media/chat.svg" }
+      ]
+    },
+    "views": {
+      "raasChat": [
+        { "id": "raasChatView", "name": "Ask RaaS" }
+      ]
+    },
+    "commands": [
+      { "command": "raas.openChat", "title": "Open RaaS Chat", "category": "RaaS" }
+    ],
+    "configuration": {
+      "title": "RaaS",
+      "properties": {
+        "raas.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8000/api/v1",
+          "description": "Base URL to your RaaS API (e.g. http://localhost:8000/api/v1)"
+        },
+        "raas.timeout": {
+          "type": "number",
+          "default": 10000,
+          "description": "HTTP request timeout (ms)"
+        },
+        "raas.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "description": "Debounce interval for completion requests (ms)"
+        }
+      }
+    }
+  },
+
+  "scripts": {
+    "build": "tsc -p .",
+    "watch": "tsc -p . -w"
+  },
+
+  "dependencies": {
+    "axios": "^1.11.0",
+    "undici": "^7.15.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.85.0"
+  }
+}

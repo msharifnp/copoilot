@@ -1,0 +1,55 @@
+# ============================
+# Python (Backend)
+# ============================
+
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+
+# ============================
+# Node.js (Frontend)
+# ============================
+
+# Dependencies
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+
+# ============================
+# IDE / Editors
+# ============================
+.vscode/
+.idea/
+
+
+# ============================
+# OS Specific
+# ============================
+.DS_Store
+Thumbs.db
