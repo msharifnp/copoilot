@@ -3,34 +3,52 @@ import { RaasChatViewProvider } from "./chat/chatViewProviders";
 import { RaaSCompletionProvider } from "./completion/completionProvider";
 import { RaaSInlineCompletionProvider } from "./completion/inlineProvider";
 
-export function activate(ctx: vscode.ExtensionContext) {
-  console.log("[RaaS] activate()");
+export function activate(context: vscode.ExtensionContext) {
+  console.log("[RaaS] Extension activating...");
 
-  ctx.subscriptions.push(
-    vscode.window.registerWebviewViewProvider("raasChatView", new RaasChatViewProvider(ctx.extensionUri)),
-    vscode.commands.registerCommand("raas.openChat", () =>
-      vscode.commands.executeCommand("workbench.view.extension.raasChat")
-    ),
+  // Register chat view provider
+  const chatProvider = new RaasChatViewProvider(context.extensionUri);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider("raasChatView", chatProvider, {
+      webviewOptions: {
+        retainContextWhenHidden: true
+      }
+    })
+  );
 
-    // Completions (menu)
+  // Register commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand("raas.openChat", () => {
+      vscode.commands.executeCommand("workbench.view.extension.raasChat");
+    })
+  );
+
+  // Register completion providers with better language support
+  const supportedLanguages = [
+    "python", "javascript", "typescript", "java", "cpp", "c", 
+    "csharp", "go", "rust", "php", "ruby", "swift", "kotlin"
+  ];
+
+  // Standard completion provider (Ctrl+Space)
+  context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(
-      [
-        { language: "python" }, { language: "javascript" }, { language: "typescript" },
-        { language: "java" }, { language: "cpp" }, { language: "c" }
-      ],
+      supportedLanguages.map(lang => ({ language: lang })),
       new RaaSCompletionProvider(),
-      ".", " ", "\n", "\t"
-    ),
+      ".", " ", "\n", "\t", "(", "[", "{"
+    )
+  );
 
-    // Inline (ghost text)
+  // Inline completion provider (ghost text)
+  context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
-      [
-        { language: "python" }, { language: "javascript" }, { language: "typescript" },
-        { language: "java" }, { language: "cpp" }, { language: "c" }
-      ],
+      supportedLanguages.map(lang => ({ language: lang })),
       new RaaSInlineCompletionProvider()
     )
   );
+
+  console.log("[RaaS] Extension activated successfully!");
 }
 
-export function deactivate() {}
+export function deactivate() {
+  console.log("[RaaS] Extension deactivated");
+}

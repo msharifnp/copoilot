@@ -19,7 +19,7 @@ export const config = {
   },
   get timeout(): number {
     return vscode.workspace.getConfiguration("raas")
-      .get<number>("timeout", 10000);
+      .get<number>("timeout", 100000);
   },
   get debounceMs(): number {
     return vscode.workspace.getConfiguration("raas")

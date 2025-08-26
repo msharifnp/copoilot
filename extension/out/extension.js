@@ -39,19 +39,31 @@ const vscode = __importStar(require("vscode"));
 const chatViewProviders_1 = require("./chat/chatViewProviders");
 const completionProvider_1 = require("./completion/completionProvider");
 const inlineProvider_1 = require("./completion/inlineProvider");
-function activate(ctx) {
-    console.log("[RaaS] activate()");
-    ctx.subscriptions.push(vscode.window.registerWebviewViewProvider("raasChatView", new chatViewProviders_1.RaasChatViewProvider(ctx.extensionUri)), vscode.commands.registerCommand("raas.openChat", () => vscode.commands.executeCommand("workbench.view.extension.raasChat")), 
-    // Completions (menu)
-    vscode.languages.registerCompletionItemProvider([
-        { language: "python" }, { language: "javascript" }, { language: "typescript" },
-        { language: "java" }, { language: "cpp" }, { language: "c" }
-    ], new completionProvider_1.RaaSCompletionProvider(), ".", " ", "\n", "\t"), 
-    // Inline (ghost text)
-    vscode.languages.registerInlineCompletionItemProvider([
-        { language: "python" }, { language: "javascript" }, { language: "typescript" },
-        { language: "java" }, { language: "cpp" }, { language: "c" }
-    ], new inlineProvider_1.RaaSInlineCompletionProvider()));
+function activate(context) {
+    console.log("[RaaS] Extension activating...");
+    // Register chat view provider
+    const chatProvider = new chatViewProviders_1.RaasChatViewProvider(context.extensionUri);
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider("raasChatView", chatProvider, {
+        webviewOptions: {
+            retainContextWhenHidden: true
+        }
+    }));
+    // Register commands
+    context.subscriptions.push(vscode.commands.registerCommand("raas.openChat", () => {
+        vscode.commands.executeCommand("workbench.view.extension.raasChat");
+    }));
+    // Register completion providers with better language support
+    const supportedLanguages = [
+        "python", "javascript", "typescript", "java", "cpp", "c",
+        "csharp", "go", "rust", "php", "ruby", "swift", "kotlin"
+    ];
+    // Standard completion provider (Ctrl+Space)
+    context.subscriptions.push(vscode.languages.registerCompletionItemProvider(supportedLanguages.map(lang => ({ language: lang })), new completionProvider_1.RaaSCompletionProvider(), ".", " ", "\n", "\t", "(", "[", "{"));
+    // Inline completion provider (ghost text)
+    context.subscriptions.push(vscode.languages.registerInlineCompletionItemProvider(supportedLanguages.map(lang => ({ language: lang })), new inlineProvider_1.RaaSInlineCompletionProvider()));
+    console.log("[RaaS] Extension activated successfully!");
 }
-function deactivate() { }
+function deactivate() {
+    console.log("[RaaS] Extension deactivated");
+}
 //# sourceMappingURL=extension.js.map

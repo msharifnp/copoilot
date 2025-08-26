@@ -1,38 +1,43 @@
 {
   "name": "raas-integrated",
   "displayName": "RaaS - AI Code Completion & Chat",
-  "description": "AI-powered code completion and chat interface using your custom RaaS API",
+  "description": "AI-powered code completion and chat using your RaaS API",
   "version": "1.0.0",
-  "engines": { "vscode": ">=1.85.0" },
-  "categories": ["Machine Learning", "Other"],
-  "keywords": ["ai", "code completion", "autocomplete", "chat", "raas"],
+  "engines": { 
+    "vscode": ">=1.85.0" 
+  },
+  "categories": ["Other"],
+  "icon": "media/chat.png",
   "main": "./out/extension.js",
-
   "activationEvents": [
-    "onStartupFinished",
-    "onView:raasChatView",
-    "onCommand:raas.openChat",
-    "onLanguage:python",
-    "onLanguage:javascript",
-    "onLanguage:typescript",
-    "onLanguage:java",
-    "onLanguage:cpp",
-    "onLanguage:c"
+    "onStartupFinished"
   ],
-
   "contributes": {
     "viewsContainers": {
       "activitybar": [
-        { "id": "raasChat", "title": "RaaS Chat", "icon": "media/chat.svg" }
+        {
+          "id": "raasChat",
+          "title": "RaaS Chat",
+          "icon": "$(comment-discussion)"
+        }
       ]
     },
     "views": {
       "raasChat": [
-        { "id": "raasChatView", "name": "Ask RaaS" }
+        { 
+          "id": "raasChatView", 
+          "name": "Ask RaaS",
+          "type": "webview"
+        }
       ]
     },
     "commands": [
-      { "command": "raas.openChat", "title": "Open RaaS Chat", "category": "RaaS" }
+      { 
+        "command": "raas.openChat", 
+        "title": "Open RaaS Chat", 
+        "category": "RaaS",
+        "icon": "$(comment-discussion)"
+      }
     ],
     "configuration": {
       "title": "RaaS",
@@ -40,40 +45,41 @@
         "raas.serverUrl": {
           "type": "string",
           "default": "http://localhost:8000",
-          "description": "Base URL to your RaaS API (e.g. http://localhost:8000/api/v1)"
+          "description": "Base URL (no trailing slash)"
         },
         "raas.chatPath": {
-          "type":"string",
-          "default":"/api/v1/chat/form",
-           "description": "Path or full URL for chat-with-files endpoint."
+          "type": "string",
+          "default": "/api/v1/chat/form",
+          "description": "Chat endpoint path or absolute URL"
         },
-        "raas.completionPath":{
+        "raas.completionPath": {
           "type": "string",
           "default": "/api/v1/code-completion",
-          "description": "Path or full URL for code-completion endpoint."
+          "description": "Code-completion endpoint path or absolute URL"
         },
-        "raas.timeout": {
-          "type": "number",
-          "default": 10000,
-          "description": "HTTP request timeout (ms)"
+        "raas.timeout": { 
+          "type": "number", 
+          "default": 100000,
+          "description": "Request timeout in milliseconds"
         },
-        "raas.debounceMs": {
-          "type": "number",
+        "raas.debounceMs": { 
+          "type": "number", 
           "default": 300,
-          "description": "Debounce interval for completion requests (ms)"
+          "description": "Debounce delay for completions in milliseconds"
         }
       }
     }
   },
-
   "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p .",
+    "watch": "tsc -p . -w",
     "build": "tsc -p .",
-    "watch": "tsc -p . -w"
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts"
   },
-
   "dependencies": {
-    "axios": "^1.11.0",
-    "undici": "^7.15.0"
+    "axios": "^1.11.0"
   },
   "devDependencies": {
     "typescript": "^5.9.2",

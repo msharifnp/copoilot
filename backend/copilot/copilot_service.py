@@ -25,8 +25,8 @@ from dotenv import load_dotenv
 
 
 load_dotenv()
-max_before = int(os.getenv("CODE_COMPLETION_MAX_BEFORE"))
-max_after = int(os.getenv("CODE_COMPLETION_MAX_AFTER"))
+MAX_BEFORE = int(os.getenv("CODE_COMPLETION_MAX_BEFORE"))
+MAX_AFTER = int(os.getenv("CODE_COMPLETION_MAX_AFTER"))
 temperature = float(os.getenv("CODE_COMPLETION_TEMPERATURE"))
 top_p = float(os.getenv("TOP_P"))
 max_tokens = int(os.getenv("CODE_COMPLETION_MAX_TOKENS"))
@@ -123,7 +123,7 @@ class CodeCompletionService:
         self._last_before_text = before_text
 
         # Bound context
-        max_before, max_after = max_before,max_after
+        max_before, max_after = MAX_BEFORE, MAX_AFTER
         if len(before_text) > max_before:
             before_text = "..." + before_text[-max_before:]
         if len(after_text) > max_after:
@@ -351,40 +351,6 @@ class ChatService:
             return 0
 
     @staticmethod
-    # async def process_chat_request(request: ChatRequest) -> ChatResponse:
-    #     start = asyncio.get_event_loop().time()
-    #     session_id, user_id = request.session_id, request.user_id
-
-    #     # 1) load history (includes any SYSTEM messages for files)
-    #     history = await ChatService.get_chat_history(session_id, user_id)
-
-    #     # 2) build messages for model
-    #     model_msgs = [{"role": m.get("role", "user"), "content": m.get("content", "")} for m in history]
-    #     model_msgs.append({"role": "user", "content": request.text})
-
-    #     # 3) call model
-    #     ai_text = await ai_model.generate_chat_response(model_msgs)
-
-    #     # 4) cache user + assistant messages
-    #     await ChatService.store_message(session_id, user_id, "user", request.text)
-    #     await ChatService.store_message(session_id, user_id, "assistant", ai_text)
-
-    #     # 5) respond
-    #     count = await ChatService.get_message_count(session_id, user_id)
-    #     ms = int((asyncio.get_event_loop().time() - start) * 1000)
-
-    #     return ChatResponse(
-    #         response=ai_text,
-    #         message_count=count,
-    #         session_id=session_id,
-    #         user_id=user_id,
-    #         session_status=SessionStatus.ACTIVE,
-    #         in_cache=True,
-    #         model_used="gemini-1.5-pro",
-    #         processing_time_ms=ms,
-    #     )
-
-    @staticmethod
     async def process_chat_request(request: ChatRequest) -> ChatResponse:
         start = asyncio.get_event_loop().time()
         session_id, user_id = request.session_id, request.user_id
@@ -435,36 +401,6 @@ class ChatService:
             processing_time_ms=ms
         )
        
-    # @staticmethod
-    # async def load_session_to_cache(session_id: str, user_id: str, ttl: Optional[int] = None) -> LoadChatResponse:
-    #     try:
-    #         # ✅ pass user_id
-    #         sess = await db_client.get_chat_session(session_id, user_id)
-    #         if not sess:
-    #             return LoadChatResponse(
-    #                 session_id=session_id,
-    #                 user_id=user_id,
-    #                 message_count=0,
-    #                 status=SessionStatus.LOADED,
-    #                 message="No session found",
-    #                 last_updated=None,
-    #             )
-
-    #         messages = sess.get("messages", []) or []
-    #         redis_client.load_chat_to_cache(session_id, messages, user_id=user_id, ttl=ttl)
-
-    #         return LoadChatResponse(
-    #             session_id=session_id,
-    #             user_id=user_id,
-    #             message_count=len(messages),
-    #             status=SessionStatus.LOADED,
-    #             message="Session loaded to cache",
-    #             last_updated=sess.get("updated_at"),
-    #         )
-    #     except Exception as e:
-    #         logger.error(f"load_session_to_cache error: {e}")
-    #         raise
-
     @staticmethod
     async def load_session_to_cache(session_id: str, user_id: str, ttl: Optional[int] = None) -> LoadChatResponse:
         try:
@@ -563,9 +499,49 @@ class FileService:
     def _detect_mime(file_path: str) -> str:
         """Use libmagic to detect the true MIME type of the file."""
         try:
+        
             return magic.from_file(file_path, mime=True)  # e.g. "application/pdf"
         except Exception:
             return "unknown/unknown"
+        
+    @staticmethod
+    def _detect_mime_from_bytes(raw: bytes) -> str:
+        """Detect MIME directly from bytes via libmagic; fallback to octet-stream."""
+        try:
+            m = magic.from_buffer(raw, mime=True)
+            return (m or "application/octet-stream").lower()
+        except Exception:
+            return "application/octet-stream"
+    
+    @staticmethod
+    def _looks_executable_bytes(raw: bytes) -> bool:
+        """
+        Detect common native executable formats by magic numbers, regardless of filename or MIME.
+        """
+        if len(raw) < 4:
+            return False
+
+        # Windows PE/COFF: "MZ" + later "PE\0\0"
+        if raw[:2] == b"MZ":
+            return True
+
+        # Linux/Unix ELF: 0x7F 'E' 'L' 'F'
+        if raw[:4] == b"\x7fELF":
+            return True
+
+        # macOS Mach-O (fat & 32/64-bit variants)
+        if raw[:4] in {
+            b"\xFE\xED\xFA\xCE",  # Mach-O 32 LE
+            b"\xFE\xED\xFA\xCF",  # Mach-O 64 LE
+            b"\xCE\xFA\xED\xFE",  # Mach-O 32 BE
+            b"\xCF\xFA\xED\xFE",  # Mach-O 64 BE
+            b"\xCA\xFE\xBA\xBE",  # Fat binary (old)
+            b"\xCA\xFE\xBA\xBF",  # Fat binary (new)
+        }:
+            return True
+        if raw[:2] == b"#!":
+            return False
+        return False
 
     @staticmethod
     def _is_dangerous_mime(mime_type: str) -> bool:
@@ -641,17 +617,56 @@ class FileService:
         except Exception as e:
             logger.error(f"extract_text_content error: {e}")
             return f"[Error extracting text: {e}]"
+    
+    
 
+    @staticmethod
+    def _is_texty(mime_type: Optional[str], ext: str) -> bool:
+        text_like_mimes = {
+            "text/plain","text/markdown","text/x-python","text/x-c","text/x-c++","text/x-go",
+            "text/x-java-source","text/javascript","application/javascript","application/json",
+            "application/xml","text/xml","text/css","text/html","application/x-sh",
+            "application/x-python","text/yaml","application/yaml","text/csv","application/csv"
+        }
+        code_exts = {
+            ".txt",".md",".rst",".py",".ipynb",".r",".rb",".pl",".php",".js",".mjs",".cjs",
+            ".ts",".tsx",".jsx",".java",".kt",".kts",".scala",".go",".c",".h",".cpp",".hpp",
+            ".cc",".hh",".cs",".swift",".rs",".sql",".html",".htm",".xml",".xhtml",".css",
+            ".sass",".scss",".json",".yaml",".yml",".toml",".ini",".cfg",".sh",".bash",".zsh",
+            ".ps1",".bat",".cmd",".gradle",".dockerfile",".env",".csv"
+        }
+        if mime_type:
+            mt = mime_type.lower()
+            if mt.startswith("text/") or mt in text_like_mimes:
+                return True
+        return ext in code_exts
+    
     @staticmethod
     async def extract_text_from_bytes(
         file_bytes: bytes,
         mime_type: Optional[str],
         original_name: Optional[str] = None
     ) -> str:
-        """
-        Writes bytes to a temp file (preserving extension if known), then delegates to extract_text_content.
-        """
-        suffix = os.path.splitext(original_name)[1] if original_name else ""
+        ext = (os.path.splitext(original_name)[1] or "").lower() if original_name else ""
+        real_mime = FileService._detect_mime_from_bytes(file_bytes)
+
+        # Block native executables regardless of name/MIME
+        if FileService._looks_executable_bytes(file_bytes):
+            return "[Blocked: file appears to be a native executable (PE/ELF/Mach-O)]"
+
+        # Defense-in-depth: MIME blocklist too
+        if FileService._is_dangerous_mime(real_mime):
+            return f"[Blocked: executable/suspicious MIME detected: {real_mime}]"
+
+        # Fast path for text/code
+        if FileService._is_texty(real_mime, ext) or FileService._is_texty(mime_type, ext):
+            try:
+                return file_bytes.decode("utf-8", errors="replace")
+            except Exception:
+                return file_bytes.decode("latin-1", errors="replace")
+
+        # Structured/binary → temp + reuse extractors
+        suffix = ext if ext else ""
         temp_file_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -663,58 +678,8 @@ class FileService:
             return f"[Error extracting text: {e}]"
         finally:
             if temp_file_path and os.path.exists(temp_file_path):
-                try:
-                    os.remove(temp_file_path)
-                except Exception:
-                    pass
-
-    # --- Helpers / Detectors ---
-
-    @staticmethod
-    def _is_texty(mime_type: Optional[str], ext: str) -> bool:
-        """Decide if file should be read as plain text (covers most programming files)."""
-
-        text_like_mimes = {
-            "text/plain",
-            "text/markdown",
-            "text/x-python",
-            "text/x-c",
-            "text/x-c++",
-            "text/x-go",
-            "text/x-java-source",
-            "text/javascript",
-            "application/javascript",
-            "application/json",
-            "application/xml",
-            "text/xml",
-            "text/css",
-            "text/html",
-            "application/x-sh",
-            "application/x-python",
-        }
-
-        code_exts = {
-            ".txt", ".md", ".rst",
-            ".py", ".ipynb", ".r", ".rb", ".pl", ".php",
-            ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
-            ".java", ".kt", ".kts", ".scala", ".go",
-            ".c", ".h", ".cpp", ".hpp", ".cc", ".hh",
-            ".cs", ".swift", ".rs",
-            ".sql",
-            ".html", ".htm", ".xml", ".xhtml",
-            ".css", ".sass", ".scss",
-            ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg",
-            ".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd",
-            ".gradle", ".dockerfile", ".env",
-        }
-
-        # Require BOTH MIME and extension to be valid
-        if mime_type:
-            if ("text/" in mime_type or mime_type.lower() in text_like_mimes) and ext in code_exts:
-                return True
-
-        return False
-
+                try: os.remove(temp_file_path)
+                except Exception: pass
 
     @staticmethod
     def _read_text(file_path: str) -> str:

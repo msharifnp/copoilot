@@ -15,6 +15,8 @@ import logging
 import datetime
 from typing import List, Optional
 import uuid
+import json
+from typing import Any, Dict
 logger = logging.getLogger(__name__)
 
 # Routers
@@ -56,48 +58,109 @@ async def chat_json(request: ChatRequest):
 
 
 #B) Multipart route (files optional) — Content-Type: multipart/form-data
+# @chat_router.post("/chat/form", response_model=ChatResponse)
+# async def chat_form(
+#     text: str = Form(...),
+#     #session_id: Optional[str] = Form(None),
+#     session_id = generate_session_id(),
+#     user_id: str = Form(...),
+#     files: Optional[List[UploadFile]] = File(None),
+# ):
+#     """Handle chat with optional file uploads. Files are cached as SYSTEM messages (no DB writes)."""
+#     try:
+#         if not text.strip():
+#             raise HTTPException(status_code=400, detail="Message text cannot be empty.")
+#         if len(text) > 50_000:
+#             raise HTTPException(status_code=400, detail="Message too long (max 50k characters)." )
+
+#         # 1) Read each uploaded file (if any), extract text, push as SYSTEM messages to Redis
+#         if files:
+#             for f in files:
+#                 if not f or not getattr(f, "filename", None):
+#                     continue
+#                 raw = await f.read()
+#                 if not raw:  # skip zero-byte placeholders
+#                     continue
+#                 extracted = await FileService.extract_text_from_bytes(raw, f.content_type or "application/octet-stream", f.filename)
+#                 if extracted:
+#                     excerpt = extracted[:50_000]
+#                     await ChatService.store_message(
+#                         session_id=session_id,
+#                         user_id=user_id,
+#                         role="system",
+#                         content=f"[Attachment: {f.filename}]\n{excerpt}",
+#                     )
+
+#         # 2) Process chat with cached context
+#         request = ChatRequest(text=text.strip(), session_id=session_id, user_id=user_id)
+#         return await ChatService.process_chat_request(request)
+
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"/chat/form error: {e}")
+#         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+
 @chat_router.post("/chat/form", response_model=ChatResponse)
 async def chat_form(
     text: str = Form(...),
-    #session_id: Optional[str] = Form(None),
-    session_id = generate_session_id(),
     user_id: str = Form(...),
     files: List[UploadFile] = File(None),
+    session_id = generate_session_id(),
+    inline_files: Optional[str] = Form(None),  # <-- add this
 ):
-    """Handle chat with optional file uploads. Files are cached as SYSTEM messages (no DB writes)."""
-    try:
-        if not text.strip():
-            raise HTTPException(status_code=400, detail="Message text cannot be empty.")
-        if len(text) > 50_000:
-            raise HTTPException(status_code=400, detail="Message too long (max 50k characters)." )
+  
 
-        # 1) Read each uploaded file (if any), extract text, push as SYSTEM messages to Redis
-        if files:
-            for f in files:
-                if not f or not getattr(f, "filename", None):
-                    continue
-                raw = await f.read()
-                if not raw:  # skip zero-byte placeholders
-                    continue
-                extracted = await FileService.extract_text_from_bytes(raw, f.content_type or "application/octet-stream", f.filename)
-                if extracted:
-                    excerpt = extracted[:50_000]
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Message text cannot be empty.")
+    if len(text) > 50_000:
+        raise HTTPException(status_code=400, detail="Message too long (max 50k characters).")
+
+    # 1) Handle uploaded files
+    had_extracted = False
+    if files:
+        for f in files:
+            if not f or not getattr(f, "filename", None):
+                continue
+            raw = await f.read()
+            if not raw:
+                continue
+            extracted = await FileService.extract_text_from_bytes(
+                raw, f.content_type or "application/octet-stream", f.filename
+            )
+            if extracted:
+                had_extracted = True
+                excerpt = extracted[:50_000]
+                await ChatService.store_message(
+                    session_id=session_id,
+                    user_id=user_id,
+                    role="system",
+                    content=f"[Attachment: {f.filename}]\n{excerpt}",
+                )
+
+    # 1b) Fallback: inline files text (if extractor couldn’t read uploaded parts)
+    if not had_extracted and inline_files:
+        try:
+            items: list[dict[str, Any]] = json.loads(inline_files)
+            for item in items:
+                name = item.get("name") or "attachment"
+                text_body = (item.get("text") or "")[:50_000]
+                if text_body:
                     await ChatService.store_message(
                         session_id=session_id,
                         user_id=user_id,
                         role="system",
-                        content=f"[Attachment: {f.filename}]\n{excerpt}",
+                        content=f"[Attachment: {name}]\n{text_body}",
                     )
+        except Exception:
+            pass
 
-        # 2) Process chat with cached context
-        request = ChatRequest(text=text.strip(), session_id=session_id, user_id=user_id)
-        return await ChatService.process_chat_request(request)
+    # 2) Process chat
+    request = ChatRequest(text=text.strip(), session_id=session_id, user_id=user_id)
+    return await ChatService.process_chat_request(request)
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"/chat/form error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
 
 # @chat_router.post("/chat/flush")
 # async def flush_session(

@@ -53,7 +53,7 @@ exports.config = {
     },
     get timeout() {
         return vscode.workspace.getConfiguration("raas")
-            .get("timeout", 10000);
+            .get("timeout", 100000);
     },
     get debounceMs() {
         return vscode.workspace.getConfiguration("raas")
