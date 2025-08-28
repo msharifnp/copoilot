@@ -1,57 +1,560 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <link rel="stylesheet" href="{{styles}}">
+  <meta charset="UTF-8" />
+  <title>RaaS Chat</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" />
+  <style>
+    :root {
+      --bg:#0f0f0f; --panel:#151515; --bubble:#1e1e1e; --bubble-me:#232323;
+      --text:#e6e6e6; --muted:#a0a6ad; --line:#242424; --accent:#1f6feb;
+      --radius:8px;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:13px/1.45 system-ui,Segoe UI,Arial; }
+
+    /* layout */
+    #wrap { display:flex; flex-direction:column; height:100vh; }
+    #chat {
+      flex:1 1 auto; overflow:auto; padding:12px;
+      background:var(--panel);
+    }
+
+    /* bubbles */
+    .msg { 
+      width:100%; max-width: none; margin:8px 0; padding:12px 14px; 
+      border-radius:10px; background:var(--bubble); 
+      white-space: pre-wrap; word-wrap: break-word;
+    }
+    .me  {background:var(--bubble-me); }
+    .meta { font-size:12px; color:var(--muted); margin-top:2px; }
+
+    /* Code blocks */
+    .msg pre {
+      background: #1a1a1a !important;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 12px;
+      margin: 8px 0;
+      overflow-x: auto;
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .msg code {
+      background: #2a2a2a;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+    }
+
+    .msg pre code {
+      background: transparent;
+      padding: 0;
+      border-radius: 0;
+    }
+
+    /* Copy button for code blocks */
+    .code-container {
+      position: relative;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: #333;
+      border: 1px solid #555;
+      color: #ccc;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .code-container:hover .copy-btn {
+      opacity: 1;
+    }
+
+    .copy-btn:hover {
+      background: #444;
+    }
+
+    /* Explanation highlighting */
+    .highlight-point {
+      color: #4fc3f7;
+      font-weight: 600;
+    }
+
+    .highlight-keyword {
+      color: #ff9800;
+      font-weight: 500;
+    }
+
+    .highlight-bold {
+      color: #81c784;
+      font-weight: 600;
+    }
+
+    .section-header {
+      color: #e91e63;
+      font-weight: 600;
+      margin: 12px 0 8px 0;
+      border-bottom: 1px solid #333;
+      padding-bottom: 4px;
+    }
+
+    /* Table formatting */
+    .msg table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 8px 0;
+      font-size: 12px;
+    }
+
+    .msg th, .msg td {
+      border: 1px solid #444;
+      padding: 6px 8px;
+      text-align: left;
+    }
+
+    .msg th {
+      background: #2a2a2a;
+      font-weight: 600;
+    }
+
+    .msg tr:nth-child(even) {
+      background: #1a1a1a;
+    }
+    .typing-indicator {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #333;
+      border-radius: 50%;
+      border-top-color: var(--accent);
+      animation: spin 1s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* composer at bottom */
+    #composer {
+      flex:0 0 auto; border-top:1px solid var(--line); background:var(--panel);
+      padding:10px; position:sticky; bottom:0;
+    }
+    #chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
+    #chips:empty { display:none; }
+
+    .chip {
+      display:inline-flex; align-items:center; gap:6px; padding:4px 8px;
+      background:#222; border:1px solid #323232; border-radius:999px; color:var(--text);
+      max-width: 280px;
+    }
+    .chip .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .chip .x { all:unset; cursor:pointer; color:var(--muted); }
+    .chip .x:hover { color:#fff; }
+
+    .row {
+      display:grid; grid-template-columns: 1fr 36px 72px; gap:8px; align-items:end;
+    }
+    #text {
+      width:100%; min-height:38px; max-height:140px; resize:vertical;
+      border:1px solid #2c2c2c; background:#141414; color:var(--text);
+      border-radius:6px; padding:10px 12px; outline:none;
+    }
+    #text::placeholder { color:#667; }
+
+    .btn {
+      height:38px; border-radius:6px; border:1px solid #2c2c2c; background:#1a1a1a; color:#d0d6dc;
+      cursor:pointer;
+    }
+    .btn:hover { background:#222; }
+    #send {
+      background:var(--accent); border-color:#2b65c8; color:#0b1320; font-weight:600;
+    }
+    #send:disabled { opacity:.5; cursor:default; }
+  </style>
 </head>
 <body>
-  <div id="chat"><div class="msg bot">🚀 RaaS Chat ready!</div></div>
-  <div id="inputRow">
-    <textarea id="input" rows="2" placeholder="Type here…"></textarea>
-    <button id="clip" title="Attach files">📎</button>
-    <button id="send">Send</button>
+  <div id="wrap">
+    <div id="chat"></div>
+
+    <div id="composer">
+      <!-- attachment chips -->
+      <div id="chips"></div>
+
+      <!-- input row -->
+      <div class="row">
+        <textarea id="text" rows="2" placeholder="Type your question here… (Enter = Send, Shift+Enter = newline)"></textarea>
+        <button id="attach" class="btn" title="Attach files">📎</button>
+        <button id="send" class="btn">Send</button>
+        <input id="file" type="file" multiple style="display:none" />
+      </div>
+    </div>
   </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
   <script>
     const vscode = acquireVsCodeApi();
-    let pickFile = false;
+    const chat  = document.getElementById('chat');
+    const text  = document.getElementById('text');
+    const send  = document.getElementById('send');
+    const attach= document.getElementById('attach');
+    const file  = document.getElementById('file');
+    const chips = document.getElementById('chips');
 
-    const chat = document.getElementById('chat');
-    const input = document.getElementById('input');
-    const send = document.getElementById('send');
-    const clip = document.getElementById('clip');
+    let pending = []; // File[]
 
-    function push(text, cls){
-      const d = document.createElement('div');
-      d.className = 'msg '+cls;
-      d.textContent = text;
-      chat.appendChild(d);
+    // === NEW: Stable session id persisted in webview state ===
+    const state = (vscode.getState && vscode.getState()) || {};
+    if (!state.sessionId) {
+      state.sessionId = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)) + '-' + Date.now();
+      vscode.setState && vscode.setState(state);
+    }
+    const SESSION_ID = state.sessionId;
+    // (Optional) Let the extension know the session id exists
+    vscode.postMessage({ type: 'init-session', sessionId: SESSION_ID });
+
+    function bubble(content, who='bot', isTyping=false) {
+      const b = document.createElement('div');
+      b.className = 'msg ' + (who === 'me' ? 'me' : '');
+      
+      if (isTyping) {
+        b.innerHTML = '<span class="typing-indicator"></span> Thinking...';
+        b.id = 'typing-msg';
+      } else {
+        // Process code blocks
+        content = formatCodeBlocks(content);
+        b.innerHTML = content;
+        
+        // Highlight code after adding to DOM
+        setTimeout(() => {
+          Prism.highlightAllUnder(b);
+          addCopyButtons(b);
+        }, 10);
+      }
+      
+      chat.appendChild(b);
+      chat.scrollTop = chat.scrollHeight;
+      return b;
+    }
+
+    function formatCodeBlocks(content) {
+      // First, protect code blocks from newline conversion
+      const codeBlocks = [];
+      let codeIndex = 0;
+      
+      // Extract and store code blocks
+      content = content.replace(/```(\w+)?\n?([\s\S]*?)```/g, (match, lang, code) => {
+        const language = lang || 'text';
+        const cleanCode = code.trim();
+        codeBlocks.push({ lang: language, code: cleanCode });
+        return `__CODE_BLOCK_${codeIndex++}__`;
+      });
+      
+      // Extract and store inline code
+      const inlineCode = [];
+      let inlineIndex = 0;
+      content = content.replace(/`([^`\n]+)`/g, (match, code) => {
+        inlineCode.push(code);
+        return `__INLINE_CODE_${inlineIndex++}__`;
+      });
+      
+      // Highlight important points and keywords
+      content = highlightExplanationPoints(content);
+      
+      // Convert newlines to <br> for regular text
+      content = content.replace(/\n/g, '<br>');
+      
+      // Restore inline code
+      content = content.replace(/__INLINE_CODE_(\d+)__/g, (match, index) => {
+        return `<code>${escapeHtml(inlineCode[parseInt(index)])}</code>`;
+      });
+      
+      // Restore code blocks with proper formatting
+      content = content.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
+        const block = codeBlocks[parseInt(index)];
+        return `<div class="code-container"><pre><code class="language-${block.lang}">${escapeHtml(block.code)}</code></pre></div>`;
+      });
+      
+      // Convert table-like text to HTML tables
+      content = convertTablesToHtml(content);
+      
+      return content;
+    }
+
+    function highlightExplanationPoints(content) {
+      content = content.replace(
+        /\bclass="highlight-keyword">([\w()\-+*/]+)\b/g,
+        '<span class="highlight-keyword">$1</span>'
+      );
+
+      content = content.replace(
+        /\bclass="highlight-point">([\w()\-+*/]+)\b/g,
+        '<span class="highlight-point">$1</span>'
+      );
+
+      content = content.replace(
+        /`([^`]+)`/g,
+        '<span class="highlight-keyword">$1</span>'
+      );
+
+      content = content.replace(/^##\s*(.*?)$/gm, '<h3 class="section-header">$1</h3>');
+      content = content.replace(/^#\s*(.*?)$/gm, '<h2 class="section-header">$1</h2>');
+
+      content = content.replace(/\*\*([^*`]+)\*\*/g, '<strong class="highlight-bold">$1</strong>');
+
+      return content;
+    }
+
+    function convertTablesToHtml(content) {
+      const lines = content.split('<br>');
+      let result = [];
+      let inTable = false;
+      let tableRows = [];
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        // Check if line looks like a table row
+        if (line.includes('|') && line.split('|').length > 2) {
+          if (!inTable) {
+            inTable = true;
+            tableRows = [];
+          }
+          
+          // Clean up the table row
+          const cells = line.split('|').map(cell => cell.trim()).filter(cell => cell !== '');
+          if (cells.length > 0) {
+            tableRows.push(cells);
+          }
+        } else if (inTable && line === '') {
+          // Empty line ends table
+          if (tableRows.length > 0) {
+            result.push(generateTableHtml(tableRows));
+            tableRows = [];
+          }
+          inTable = false;
+          result.push('<br>');
+        } else if (inTable && line.includes('-') && line.includes('|')) {
+          // Skip separator lines like |---|---|
+          continue;
+        } else {
+          // Not a table line
+          if (inTable && tableRows.length > 0) {
+            result.push(generateTableHtml(tableRows));
+            tableRows = [];
+            inTable = false;
+          }
+          result.push(line);
+        }
+      }
+      
+      // Handle table at end of content
+      if (inTable && tableRows.length > 0) {
+        result.push(generateTableHtml(tableRows));
+      }
+      
+      return result.join('<br>');
+    }
+
+    function generateTableHtml(rows) {
+      if (rows.length === 0) return '';
+      
+      let html = '<table>';
+      
+      // First row as header if it looks like headers
+      const hasHeader = rows[0].some(cell => 
+        cell.includes('_') || 
+        cell.toLowerCase() !== cell || 
+        cell.includes('ID') || 
+        cell.includes('Name')
+      );
+      
+      rows.forEach((row, index) => {
+        if (index === 0 && hasHeader) {
+          html += '<tr>';
+          row.forEach(cell => {
+            html += `<th>${escapeHtml(cell)}</th>`;
+          });
+          html += '</tr>';
+        } else {
+          html += '<tr>';
+          row.forEach(cell => {
+            html += `<td>${escapeHtml(cell)}</td>`;
+          });
+          html += '</tr>';
+        }
+      });
+      
+      html += '</table>';
+      return html;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function addCopyButtons(container) {
+      const codeContainers = container.querySelectorAll('.code-container');
+      codeContainers.forEach(codeContainer => {
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'copy-btn';
+        copyBtn.textContent = 'Copy';
+        copyBtn.onclick = () => {
+          const code = codeContainer.querySelector('code').textContent;
+          navigator.clipboard.writeText(code).then(() => {
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+          });
+        };
+        codeContainer.appendChild(copyBtn);
+      });
+    }
+
+    function typeWriterEffect(element, content, speed = 20) {
+      element.innerHTML = '';
+      
+      // Simply show the content immediately with proper formatting
+      const formattedContent = formatCodeBlocks(content);
+      element.innerHTML = formattedContent;
+      
+      // Apply syntax highlighting immediately
+      setTimeout(() => {
+        Prism.highlightAllUnder(element);
+        addCopyButtons(element);
+      }, 10);
+      
       chat.scrollTop = chat.scrollHeight;
     }
 
-    function sendMsg(){
-      const text = input.value.trim();
-      if(!text) return;
-      push(text, 'user');
-      input.value = '';
-      push('Generating…', 'bot load');
-      vscode.postMessage({ type: 'chat', text, pickFile });
-      pickFile = false;
+    function bubbleFiles(files, who='me') {
+      for (const f of files) {
+        const b = document.createElement('div');
+        b.className = 'msg ' + (who==='me'?'me':'');
+        b.textContent = '📎 ' + f.name;
+        const m = document.createElement('div');
+        m.className = 'meta';
+        m.textContent = formatSize(f.size) + (f.type ? ` • ${f.type}` : '');
+        b.appendChild(document.createElement('br'));
+        b.appendChild(m);
+        chat.appendChild(b);
+      }
+      chat.scrollTop = chat.scrollHeight;
     }
 
-    send.onclick = sendMsg;
-    input.addEventListener('keydown', e => {
-      if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMsg(); }
-    });
-    clip.onclick = () => { pickFile = true; sendMsg(); };
+    function formatSize(n){
+      if (n<1024) return `${n} B`;
+      const u=['KB','MB','GB','TB']; let i=-1; do { n/=1024; i++; } while(n>=1024 && i<u.length-1);
+      return `${n.toFixed(1)} ${u[i]}`;
+    }
 
+    function refreshChips(){
+      chips.innerHTML = '';
+      for (const f of pending) {
+        const c = document.createElement('span');
+        c.className='chip';
+        c.innerHTML = `📎 <span class="name">${f.name}</span> <span class="meta">${formatSize(f.size)}</span> <button class="x" title="Remove">✕</button>`;
+        c.querySelector('.x').onclick = () => { pending = pending.filter(x => x!==f); refreshChips(); };
+        chips.appendChild(c);
+      }
+    }
+
+    // pick files immediately
+    attach.addEventListener('click', () => file.click());
+    file.addEventListener('change', () => {
+      if (!file.files?.length) return;
+      pending.push(...file.files);
+      file.value = '';
+      refreshChips();
+    });
+
+    // Enter to send, Shift+Enter newline
+    text.addEventListener('keydown', e=>{
+      if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
+    });
+
+    send.addEventListener('click', doSend);
+
+    async function doSend() {
+      const msg = text.value.trim();
+      if (!msg && pending.length===0) return;
+
+      if (msg) bubble(msg,'me');
+      if (pending.length) bubbleFiles(pending,'me');
+
+      // Show typing indicator
+      const typingMsg = bubble('', 'bot', true);
+
+      const filesB64 = await Promise.all(pending.map(toB64));
+
+      // === CHANGED: include sessionId on every message ===
+      vscode.postMessage({ type:'chat', text: msg, files: filesB64, sessionId: SESSION_ID });
+
+      text.value = '';
+      pending = [];
+      refreshChips();
+    }
+
+    function toB64(file){
+      return new Promise((resolve,reject)=>{
+        const r = new FileReader();
+        r.onerror = () => reject(r.error);
+        r.onload  = () => {
+          const s = String(r.result);
+          resolve({
+            filename: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            size: file.size,
+            contentBase64: s.substring(s.indexOf(',')+1)
+          });
+        };
+        r.readAsDataURL(file);
+      });
+    }
+
+    // responses from extension
     window.addEventListener('message', ev => {
       const m = ev.data || {};
-      if(m.type==='response'){
-        const last = chat.lastElementChild;
-        if(last && last.classList.contains('load')) last.remove();
-        push(m.text, m.success ? 'bot' : 'err');
+      if (m.type === 'response') {
+        // Remove typing indicator
+        const typingMsg = document.getElementById('typing-msg');
+        if (typingMsg) {
+          typingMsg.remove();
+        }
+
+        // For successful responses, show with proper formatting
+        if (m.success) {
+          const responseMsg = document.createElement('div');
+          responseMsg.className = 'msg';
+          chat.appendChild(responseMsg);
+          
+          // Apply formatting and show immediately
+          responseMsg.innerHTML = formatCodeBlocks(m.text);
+          setTimeout(() => {
+            Prism.highlightAllUnder(responseMsg);
+            addCopyButtons(responseMsg);
+          }, 10);
+          
+          chat.scrollTop = chat.scrollHeight;
+        } else {
+          bubble(m.text, 'err');
+        }
       }
     });
+
+    // Initialize Prism autoloader
+    Prism.plugins.autoloader.languages_path = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/';
   </script>
 </body>
 </html>

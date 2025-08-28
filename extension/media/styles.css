@@ -97,6 +97,32 @@ body {
   align-items: flex-end;
 }
 
+/* Style for inline code */
+.code {
+  background: #2d2d2d;   /* same as your code blocks */
+  color: #f8f8f2;        /* light text */
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+/* Optional: code blocks from ``` */
+pre code[class^="language-"],
+pre code[class*=" language-"]{
+  display: block;
+  padding: .75rem 1rem;
+  background: #0b0b0c;
+  color: #e5e7eb;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+/* keep fenced code blocks controlled by your highlighter/theme */
+pre code { background: transparent; }
+
+
+
+
 #message-input {
   flex: 1;
   min-height: 40px;
