@@ -363,7 +363,7 @@ def generate_session_id():
     unique_id = str(uuid.uuid4())
     return f"{timestamp}-{unique_id}"
 
-# A) JSON route (no files) – Content-Type: application/json
+# A) JSON route (no files) — Content-Type: application/json
 @chat_router.post("/chat", response_model=ChatResponse)
 async def chat_json(request: ChatRequest):
     """Pure JSON chat: send ChatRequest body without files."""
@@ -381,99 +381,82 @@ async def chat_json(request: ChatRequest):
         logger.error(f"/chat (json) error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# B) Fixed multipart route with proper file handling
 @chat_router.post("/chat/form", response_model=ChatResponse)
 async def chat_form(
     text: str = Form(...),
     user_id: str = Form(...),
     files: List[UploadFile] = File(None),
-    session_id: Optional[str] = Form(None),  # Allow session_id from form
+    session_id: Optional[str] = Form(None),  # Changed: make it optional and from Form
     inline_files: Optional[str] = Form(None),
 ):
-    """Handle chat with optional file uploads. Files are processed and stored as system messages."""
-    try:
-        # Generate session_id if not provided
-        if not session_id:
-            session_id = generate_session_id()
+    """
+    Fixed version: Don't generate new session_id each time.
+    Use the session_id from frontend, or generate only if truly missing.
+    """
+    
+    # Only generate if not provided
+    if not session_id:
+        session_id = generate_session_id()
+        logger.info(f"Generated new session_id: {session_id}")
+    else:
+        logger.info(f"Using existing session_id: {session_id}")
 
-        if not text.strip():
-            raise HTTPException(status_code=400, detail="Message text cannot be empty.")
-        if len(text) > 50_000:
-            raise HTTPException(status_code=400, detail="Message too long (max 50k characters).")
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Message text cannot be empty.")
+    if len(text) > 50_000:
+        raise HTTPException(status_code=400, detail="Message too long (max 50k characters).")
 
-        # Clear any existing system messages for this session to prevent contamination
-        await ChatService.clear_system_messages(session_id, user_id)
-
-        # Handle uploaded files
-        had_extracted = False
-        if files:
-            for f in files:
-                if not f or not getattr(f, "filename", None):
-                    continue
-                raw = await f.read()
-                if not raw:
-                    continue
-                    
-                logger.info(f"Processing file: {f.filename}, size: {len(raw)} bytes")
-                
-                extracted = await FileService.extract_text_from_bytes(
-                    raw, f.content_type or "application/octet-stream", f.filename
+    # 1) Handle uploaded files - store as system messages
+    had_extracted = False
+    if files:
+        for f in files:
+            if not f or not getattr(f, "filename", None):
+                continue
+            raw = await f.read()
+            if not raw:
+                continue
+            extracted = await FileService.extract_text_from_bytes(
+                raw, f.content_type or "application/octet-stream", f.filename
+            )
+            if extracted:
+                had_extracted = True
+                excerpt = extracted[:50_000]
+                # Store file content as system message
+                await ChatService.store_message(
+                    session_id=session_id,
+                    user_id=user_id,
+                    role="system",
+                    content=f"[Attachment: {f.filename}]\n{excerpt}",
                 )
-                
-                if extracted and not extracted.startswith("[Blocked:") and not extracted.startswith("[Error"):
-                    had_extracted = True
-                    excerpt = extracted[:50_000]
-                    
-                    # Store with timestamp to ensure uniqueness
-                    timestamp = datetime.datetime.utcnow().isoformat()
-                    system_content = f"[Attachment uploaded at {timestamp}: {f.filename}]\n{excerpt}"
-                    
+                logger.info(f"Stored file {f.filename} as system message in session {session_id}")
+
+    # 1b) Fallback: inline files text (if extractor couldn't read uploaded parts)
+    if not had_extracted and inline_files:
+        try:
+            items: list[dict[str, Any]] = json.loads(inline_files)
+            for item in items:
+                name = item.get("name") or "attachment"
+                text_body = (item.get("text") or "")[:50_000]
+                if text_body:
                     await ChatService.store_message(
                         session_id=session_id,
                         user_id=user_id,
                         role="system",
-                        content=system_content,
+                        content=f"[Attachment: {name}]\n{text_body}",
                     )
-                    logger.info(f"Stored system message for file: {f.filename}")
+                    logger.info(f"Stored inline file {name} as system message in session {session_id}")
+        except Exception as e:
+            logger.error(f"Error processing inline files: {e}")
 
-        # Fallback: inline files text (if extractor couldn't read uploaded parts)
-        if not had_extracted and inline_files:
-            try:
-                items: list[dict[str, Any]] = json.loads(inline_files)
-                for item in items:
-                    name = item.get("name") or "attachment"
-                    text_body = (item.get("text") or "")[:50_000]
-                    if text_body:
-                        timestamp = datetime.datetime.utcnow().isoformat()
-                        system_content = f"[Inline attachment at {timestamp}: {name}]\n{text_body}"
-                        
-                        await ChatService.store_message(
-                            session_id=session_id,
-                            user_id=user_id,
-                            role="system",
-                            content=system_content,
-                        )
-                        had_extracted = True
-                        logger.info(f"Stored inline system message for: {name}")
-            except Exception as e:
-                logger.warning(f"Failed to process inline files: {e}")
+    # 2) Process chat with the existing session_id
+    request = ChatRequest(text=text.strip(), session_id=session_id, user_id=user_id)
+    response = await ChatService.process_chat_request(request)
+    
+    # Ensure session_id is returned so frontend can track it
+    response.session_id = session_id
+    return response
 
-        # Mark session as having fresh attachments
-        if had_extracted:
-            await ChatService.mark_session_fresh_attachment(session_id, user_id)
-            logger.info(f"Marked session {session_id} as having fresh attachments")
-
-        # Process chat request
-        request = ChatRequest(text=text.strip(), session_id=session_id, user_id=user_id)
-        return await ChatService.process_chat_request(request)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"/chat/form error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-# Code completion endpoint
+# Code completion
 @code_router.post("/code-completion", response_model=CodeCompletionResponse)
 async def code_completion(request: CodeCompletionRequest):
     """Handle code completion requests."""
@@ -565,7 +548,7 @@ async def start_session(payload: StartChatRequest = Body(...), prev_session_id: 
             try:
                 await ChatService.flush_session_to_db(prev_session_id, payload.user_id, clear_cache=True, reason="switch_to_new")
             except Exception as fe:
-                logger.warning(f"Failed to flush previous session {prev_session_id}: {fe}")
+                logging.warning(f"Failed to flush previous session {prev_session_id}: {fe}")
 
         session_id = payload.session_id or f"{payload.user_id}_{int(time.time())}"
         if payload.initial_message:
@@ -580,7 +563,7 @@ async def start_session(payload: StartChatRequest = Body(...), prev_session_id: 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Start session failed: {e}")
 
-# Health endpoints
+# Health / info
 @health_router.get("/model-info")
 async def get_model_info():
     """Get AI model information."""
@@ -630,7 +613,7 @@ async def health_check():
             database_connected=db_client.is_connected,
             redis_connected=redis_client.is_connected,
             uptime_seconds=None,
-            timestamp=datetime.datetime.utcnow(),
+            timestamp=datetime.utcnow(),
         )
     except Exception as e:
         logger.error(f"Health check error: {e}")
@@ -641,7 +624,7 @@ async def health_check():
             model="unknown",
             database_connected=False,
             redis_connected=False,
-            timestamp=datetime.datetime.utcnow(),
+            timestamp=datetime.utcnow(),
         )
 
 def get_routers() -> List[APIRouter]:
