@@ -1,14 +1,6 @@
 "use strict";
-// import { apiClient, UploadFilePart } from "../apiClient";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendChat = sendChat;
-// class ChatManager {
-//   async send(text: string, files: UploadFilePart[] = []) {
-//     return apiClient.sendChatForm(text, files);
-//   }
-// }
-// export const chatManager = new ChatManager();
-// src/chat/chatManager.ts
 const apiClient_1 = require("../apiClient");
 async function sendChat(text, files = [], sessionId // <-- add this param
 ) {

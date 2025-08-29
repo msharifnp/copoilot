@@ -10,7 +10,11 @@
   "icon": "media/chat.png",
   "main": "./out/extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onViewContainer:raasChat",
+    "onView:raasChatView",
+    "onLanguage:*",
+    "onCommand:raas.openChat"
   ],
   "contributes": {
     "viewsContainers": {
@@ -18,7 +22,7 @@
         {
           "id": "raasChat",
           "title": "RaaS Chat",
-          "icon": "$(comment-discussion)"
+          "icon": "media/chat.svg"
         }
       ]
     },
@@ -27,7 +31,8 @@
         { 
           "id": "raasChatView", 
           "name": "Ask RaaS",
-          "type": "webview"
+          "type": "webview",
+          "icon": "media/chat.svg"
         }
       ]
     },
@@ -87,3 +92,6 @@
     "@types/vscode": "^1.85.0"
   }
 }
+
+
+

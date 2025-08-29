@@ -94,7 +94,7 @@ class ApiClient {
       // Always use form data to handle session_id consistently
       const formData = new FormData();
       formData.append("text", text || "");
-      formData.append("user_id", "sharif_102");
+      formData.append("user_id", "sharif_111");
       
       // Add session_id if provided
       if (sessionId) {
