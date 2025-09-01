@@ -39,7 +39,7 @@ class AIModelClient:
         
         # Code completion specific settings (clamped to limits)
         self._code_temperature = float(os.getenv("CODE_COMPLETION_TEMPERATURE"))
-        self._code_max_tokens = int(os.getenv("CODE_COMPLETION_MAX_TOKENS"))
+        self._code_max_tokens = int(os.getenv("CODE_COMPLETION_MENU_MAX_TOKENS"))
         self._code_timeout = int(os.getenv("CODE_COMPLETION_TIMEOUT"))
         
         # File processing settings (clamped to limits)

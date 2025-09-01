@@ -42,6 +42,16 @@
         "title": "Open RaaS Chat", 
         "category": "RaaS",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "raas.testCompletion",
+        "title": "Test Code Completion",
+        "category": "RaaS Debug"
+      },
+      {
+        "command": "raas.checkHealth",
+        "title": "Check API Health", 
+        "category": "RaaS Debug"
       }
     ],
     "configuration": {
@@ -69,7 +79,7 @@
         },
         "raas.debounceMs": { 
           "type": "number", 
-          "default": 300,
+          "default": 500,
           "description": "Debounce delay for completions in milliseconds"
         }
       }
@@ -92,6 +102,3 @@
     "@types/vscode": "^1.85.0"
   }
 }
-
-
-

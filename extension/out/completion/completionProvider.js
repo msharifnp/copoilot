@@ -1,4 +1,7 @@
 "use strict";
+// import * as vscode from "vscode";
+// import { apiClient } from "../apiClient";
+// import { config } from "../config";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -34,37 +37,96 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RaaSCompletionProvider = void 0;
+// export class RaaSCompletionProvider implements vscode.CompletionItemProvider {
+//   private last = 0;
+//   async provideCompletionItems(doc: vscode.TextDocument, pos: vscode.Position) {
+//     const now = Date.now();
+//     if (now - this.last < config.debounceMs) return [];
+//     this.last = now;
+//     const before = doc.getText(new vscode.Range(new vscode.Position(Math.max(0, pos.line - 5), 0), pos));
+//     const after = doc.getText(new vscode.Range(pos, new vscode.Position(Math.min(doc.lineCount - 1, pos.line + 2), 0)));
+//     try {
+//       const { completion } = await apiClient.completeCode({
+//         text: before + after,
+//         language: doc.languageId,
+//         context: { before, after, line: pos.line, mode: "menu" }
+//       });
+//       const text = (completion || "").trim();
+//       if (!text) return [];
+//       const item = new vscode.CompletionItem(text.split("\n")[0] || "RaaS", vscode.CompletionItemKind.Snippet);
+//       item.insertText = new vscode.SnippetString(text);
+//       item.detail = "🤖 RaaS AI";
+//       item.sortText = "00000";
+//       item.preselect = true;
+//       return [item];
+//     } catch {
+//       return [];
+//     }
+//   }
+// }
+// completionProvider.ts
 const vscode = __importStar(require("vscode"));
 const apiClient_1 = require("../apiClient");
 const config_1 = require("../config");
 class RaaSCompletionProvider {
     constructor() {
-        this.last = 0;
+        this.lastRequest = 0;
     }
-    async provideCompletionItems(doc, pos) {
+    async provideCompletionItems(document, position, token, context) {
+        // Debounce
         const now = Date.now();
-        if (now - this.last < config_1.config.debounceMs)
+        if (now - this.lastRequest < config_1.config.debounceMs) {
             return [];
-        this.last = now;
-        const before = doc.getText(new vscode.Range(new vscode.Position(Math.max(0, pos.line - 5), 0), pos));
-        const after = doc.getText(new vscode.Range(pos, new vscode.Position(Math.min(doc.lineCount - 1, pos.line + 2), 0)));
+        }
+        this.lastRequest = now;
+        // Check if request was cancelled
+        if (token.isCancellationRequested) {
+            return [];
+        }
         try {
-            const { completion } = await apiClient_1.apiClient.completeCode({
-                text: before + after,
-                language: doc.languageId,
-                context: { before, after, line: pos.line, mode: "menu" }
+            // Get surrounding context (more context for better completions)
+            const beforeRange = new vscode.Range(new vscode.Position(Math.max(0, position.line - 10), 0), position);
+            const afterRange = new vscode.Range(position, new vscode.Position(Math.min(document.lineCount - 1, position.line + 5), 0));
+            const beforeText = document.getText(beforeRange);
+            const afterText = document.getText(afterRange);
+            const fullText = beforeText + afterText;
+            console.log(`[RaaS Completion] Language: ${document.languageId}, Position: ${position.line}:${position.character}`);
+            // Call completion API with proper payload
+            const response = await apiClient_1.apiClient.completeCode({
+                text: fullText,
+                language: document.languageId,
+                context: {
+                    before: beforeText,
+                    after: afterText,
+                    line: position.line,
+                    mode: "completion" // Indicate this is standard completion
+                },
+                user_id: "sharif_111", // Add user_id if required by your API
+                file_path: document.uri.fsPath // Add file path for project context
             });
-            const text = (completion || "").trim();
-            if (!text)
+            const completionText = (response.completion || "").trim();
+            if (!completionText) {
+                console.log('[RaaS Completion] No completion returned from API');
                 return [];
-            const item = new vscode.CompletionItem(text.split("\n")[0] || "RaaS", vscode.CompletionItemKind.Snippet);
-            item.insertText = new vscode.SnippetString(text);
-            item.detail = "🤖 RaaS AI";
-            item.sortText = "00000";
+            }
+            console.log(`[RaaS Completion] Got completion: ${completionText.slice(0, 50)}...`);
+            // Create completion item
+            const firstLine = completionText.split('\n')[0] || "RaaS Suggestion";
+            const item = new vscode.CompletionItem(firstLine, vscode.CompletionItemKind.Snippet);
+            item.insertText = new vscode.SnippetString(completionText);
+            item.detail = "🤖 RaaS AI Completion";
+            item.documentation = new vscode.MarkdownString(`AI-generated code completion\n\nLanguage: ${document.languageId}`);
+            item.sortText = "00000"; // High priority
             item.preselect = true;
+            item.command = {
+                command: 'editor.action.triggerSuggest',
+                title: 'Re-trigger completions'
+            };
             return [item];
         }
-        catch {
+        catch (error) {
+            console.error(`[RaaS Completion] Error:`, error);
+            // Return empty array instead of throwing
             return [];
         }
     }

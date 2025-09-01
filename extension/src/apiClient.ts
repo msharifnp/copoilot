@@ -94,7 +94,7 @@ class ApiClient {
       // Always use form data to handle session_id consistently
       const formData = new FormData();
       formData.append("text", text || "");
-      formData.append("user_id", "sharif_111");
+      formData.append("user_id", "sharif_200");
       
       // Add session_id if provided
       if (sessionId) {
@@ -132,27 +132,47 @@ class ApiClient {
       line?: number; 
       mode?: string; 
     };
+    user_id?: string;
+    file_path?: string;
   }): Promise<CodeCompletionResponse> {
     try {
       const url = config.toUrl(config.completionPath);
       console.log(`[RaaS] Sending completion request to: ${url}`);
+      console.log(`[RaaS] Completion payload:`, {
+        text_length: payload.text?.length || 0,
+        language: payload.language,
+        mode: payload.context?.mode,
+        user_id: payload.user_id
+      });
       
-      // Clean up the payload - remove undefined values
-      const cleanPayload = {
-        text: payload.text,
-        ...(payload.language && { language: payload.language }),
-        ...(payload.context && { context: payload.context })
+      // Build the request payload matching your backend schema
+      const completionPayload = {
+        text: payload.text || "",
+        language: payload.language || "python",
+        user_id: payload.user_id || "sharif_200",
+        file_path: payload.file_path,
+        context: payload.context || {}
       };
       
-      const { data } = await this.http.post<CodeCompletionResponse>(url, cleanPayload, {
+      const { data } = await this.http.post<CodeCompletionResponse>(url, completionPayload, {
         headers: {
           'Content-Type': 'application/json',
         }
       });
 
+      console.log(`[RaaS] Completion response:`, {
+        completion_length: data.completion?.length || 0,
+        completion_preview: data.completion?.slice(0, 50) || "empty"
+      });
+
       return data;
     } catch (error: any) {
       console.error('[RaaS] Completion request failed:', error);
+      console.error('[RaaS] Error details:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data
+      });
       throw this.handleError(error);
     }
   }

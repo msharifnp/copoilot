@@ -6,7 +6,7 @@ load_dotenv()
 
 temperature = float(os.getenv("CODE_COMPLETION_TEMPERATURE"))
 top_p = float(os.getenv("TOP_P"))
-max_tokens = int(os.getenv("CODE_COMPLETION_MAX_TOKENS"))
+max_tokens = int(os.getenv("CODE_COMPLETION_MENU_MAX_TOKENS"))
 
 
 def get_language_contexts():

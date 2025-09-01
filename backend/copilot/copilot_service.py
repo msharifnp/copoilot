@@ -1,9 +1,11 @@
 import os, json, re, glob, asyncio, logging, tempfile,csv,io, hashlib
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
+import time
 import fnmatch
 import magic
 import hashlib
+from dataclasses import dataclass
 from language_contexts import get_language_contexts
 from model import ai_model
 from redis_client import redis_client
@@ -25,16 +27,29 @@ from dotenv import load_dotenv
 
 
 load_dotenv()
-MAX_BEFORE = int(os.getenv("CODE_COMPLETION_MAX_BEFORE"))
-MAX_AFTER = int(os.getenv("CODE_COMPLETION_MAX_AFTER"))
-temperature = float(os.getenv("CODE_COMPLETION_TEMPERATURE"))
-top_p = float(os.getenv("TOP_P"))
-max_tokens = int(os.getenv("CODE_COMPLETION_MAX_TOKENS"))
+MENU_MAX_BEFORE = int(os.getenv("CODE_COMPLETION_MENU_MAX_BEFORE"))
+MENU_MAX_AFTER = int(os.getenv("CODE_COMPLETION_MENU_MAX_AFTER"))
+MENU_MAX_TOKENS = int(os.getenv("CODE_COMPLETION_MENU_MAX_TOKENS"))
+MENU_TIMEOUT    = int(os.getenv("CODE_COMPLETION_TIMEOUT"))
 
+INLINE_MAX_BEFORE = int(os.getenv("CODE_COMPLETION_INLINE_MAX_BEFORE"))
+INLINE_MAX_AFTER  = int(os.getenv("CODE_COMPLETION_INLINE_MAX_AFTER"))
+INLINE_MAX_TOKENS  = int(os.getenv("CODE_COMPLETION_INLINE_MAX_TOKENS"))
+INLINE_TIMEOUT    = int(os.getenv("CODE_COMPLETION_INLINE_TIMEOUT"))
+
+TEMPERATURE = float(os.getenv("CODE_COMPLETION_TEMPERATURE"))
+TOP_P_ENV = float(os.getenv("TOP_P"))
+CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS"))
+max_total_messages = int(os.getenv("CHAT_CONTEXT_MESSAGES"))
 logger = logging.getLogger(__name__)
 
 
-
+@dataclass
+class CachedCompletion:
+    """Cached completion with metadata"""
+    completion: str
+    timestamp: float
+    confidence: float
 
 class ProjectContextService:
     """Service for managing project context and file analysis"""
@@ -103,43 +118,114 @@ class ProjectContextService:
 
 
 class CodeCompletionService:
-    """Service for handling code completion logic"""
+    """Optimized service for handling code completion with minimal delay"""
 
     def __init__(self):
-        self.completion_cache: Dict[str, str] = {}
+        self.completion_cache: Dict[str, CachedCompletion] = {}
         self.language_contexts = get_language_contexts()
         self._last_before_text = ""
+        self._cache_hits = 0
+        self._cache_misses = 0
+
+    def _smart_truncate_before(self, text: str, max_length: int) -> str:
+        """Smart truncation that preserves context boundaries"""
+        if len(text) <= max_length:
+            return text
+            
+        # Try to preserve function/class boundaries
+        lines = text.split('\n')
+        truncated_lines = []
+        current_length = 0
+        
+        # Start from the end and work backwards
+        for line in reversed(lines):
+            line_length = len(line) + 1  # +1 for newline
+            if current_length + line_length > max_length:
+                break
+            truncated_lines.insert(0, line)
+            current_length += line_length
+            
+        if not truncated_lines:
+            # Fallback to simple truncation
+            return "..." + text[-max_length:]
+            
+        return '\n'.join(truncated_lines)
+
+    def _smart_truncate_after(self, text: str, max_length: int) -> str:
+        """Smart truncation for after text"""
+        if len(text) <= max_length:
+            return text
+            
+        # Find a good stopping point (end of line/block)
+        truncated = text[:max_length]
+        last_newline = truncated.rfind('\n')
+        if last_newline > max_length * 0.7:  # If we can preserve 70% and end at newline
+            return truncated[:last_newline]
+        return truncated + "..."
+
+    def _optimize_context_bounds(self, before_text: str, after_text: str, mode: str) -> Tuple[str, str]:
+        """Optimized context bounding with smart truncation"""
+        if mode == "inline":
+            max_before, max_after = INLINE_MAX_BEFORE, INLINE_MAX_AFTER
+        else:
+            max_before, max_after = MENU_MAX_BEFORE, MENU_MAX_AFTER
+
+        # Early return if within bounds
+        if len(before_text) <= max_before and len(after_text) <= max_after:
+            return before_text, after_text
+
+        # Smart truncation
+        before_text = self._smart_truncate_before(before_text, max_before)
+        after_text = self._smart_truncate_after(after_text, max_after)
+        
+        return before_text, after_text
 
     def create_completion_prompt(self, request: CodeCompletionRequest) -> Tuple[str, Dict[str, Any]]:
+        """Create completion prompt with optimizations"""
         language = request.language or SupportedLanguage.PYTHON
         context = request.context or {}
-
+        
         lang_context = self.language_contexts.get(language, self.language_contexts[SupportedLanguage.PYTHON])
-        config = lang_context["config"]
+        config = lang_context.get("config", {})
 
         before_text = context.get("before", "")
-        after_text  = context.get("after", "")
+        after_text = context.get("after", "")
+        mode = (context.get("mode") or "menu").lower()
 
+        # Cache for indentation fix
         self._last_before_text = before_text
 
-        # Bound context
-        max_before, max_after = MAX_BEFORE, MAX_AFTER
-        if len(before_text) > max_before:
-            before_text = "..." + before_text[-max_before:]
-        if len(after_text) > max_after:
-            after_text = after_text[:max_after] + "..."
+        # Optimize context bounds
+        before_text, after_text = self._optimize_context_bounds(before_text, after_text, mode)
 
-        # Optional project context (best-effort)
+        # Minimal project context for inline mode
         project_context = ""
-        if request.file_path:
-            project_root = os.path.dirname(request.file_path)
-            project_context = ProjectContextService.get_project_context(project_root)
+        if mode != "inline" and request.file_path:
+            try:
+                from copilot_service import ProjectContextService
+                project_root = os.path.dirname(request.file_path)
+                project_context = ProjectContextService.get_project_context(project_root)
+                # Limit project context length for speed
+                if len(project_context) > 500:
+                    project_context = project_context[:500] + "..."
+            except Exception:
+                project_context = ""  # Fail gracefully
 
-        prompt = f"""You are a {language.value} coding assistant.
+        # Streamlined prompt templates
+        if mode == "inline":
+            prompt = f"""Complete the {language.value} code at [CURSOR_HERE]:
 
-PROJECT CONTEXT:
-{project_context}
+```{language.value}
+{before_text}[CURSOR_HERE]{after_text}
+```
 
+Provide only the code to replace [CURSOR_HERE]. No explanations.
+
+COMPLETION:"""
+        else:
+            prompt = f"""You are a {language.value} coding assistant.
+
+{f'PROJECT CONTEXT:\n{project_context}\n' if project_context else ''}
 CODE TO COMPLETE:
 ```{language.value}
 {before_text}[CURSOR_HERE]{after_text}
@@ -153,102 +239,497 @@ INSTRUCTIONS:
 - Do not include explanations or comments
 
 COMPLETION:"""
+
         return prompt, config
 
     def post_process_completion(self, completion: str, language: SupportedLanguage) -> str:
+        """Optimized post-processing for minimal delay"""
         if not completion:
             return ""
 
+        # Single-pass cleanup
         completion = completion.strip()
-        completion = re.sub(r"```[\w]*\n?", "", completion)
-        completion = re.sub(r"```", "", completion)
-
-        for prefix in [
+        
+        # Remove code blocks efficiently
+        if completion.startswith('```'):
+            lines = completion.split('\n', 1)
+            completion = lines[1] if len(lines) > 1 else completion[3:]
+        if completion.endswith('```'):
+            completion = completion.rsplit('\n', 1)[0] if '\n' in completion else completion[:-3]
+        
+        # Remove common prefixes efficiently
+        prefixes = [
             "Here's", "The completion", "Complete", "COMPLETION:",
             f"{language.value}:", "Code:", "Answer:", "Result:", "Output:"
-        ]:
+        ]
+        for prefix in prefixes:
             if completion.lower().startswith(prefix.lower()):
-                completion = completion[len(prefix):].strip()
+                completion = completion[len(prefix):].lstrip(': ')
                 break
 
-        # Stop at explanatory text
-        lines = completion.split("\n")
-        code_lines: List[str] = []
-        for line in lines:
-            if any(word in line.lower() for word in [
-                "this code", "explanation", "note:", "this will", "this is",
-                "the above", "this function", "this creates", "this defines"
-            ]):
+        # Stop at explanatory text (optimized)
+        explanation_markers = [
+            "this code", "explanation", "note:", "this will", "this is",
+            "the above", "this function", "this creates", "this defines"
+        ]
+        lines = completion.split('\n')
+        for i, line in enumerate(lines):
+            if any(marker in line.lower() for marker in explanation_markers):
+                completion = '\n'.join(lines[:i])
                 break
-            code_lines.append(line)
-        completion = "\n".join(code_lines).strip()
 
-        # Indentation fix
-        if getattr(self, "_last_before_text", ""):
-            last_line = self._last_before_text.split("\n")[-1]
-            m = re.match(r"^(\s+)", last_line)
-            base_indent = m.group(1) if m else ""
-            fixed = []
-            for i, line in enumerate(completion.split("\n")):
-                fixed.append(line if i == 0 else base_indent + line)
-            completion = "\n".join(fixed)
-            before_last_line = last_line.strip()
-            if completion.lower().startswith(before_last_line.lower()):
-                completion = completion[len(before_last_line):].lstrip()
+        # Optimized indentation fix
+        if self._last_before_text:
+            last_line = self._last_before_text.split('\n')[-1]
+            if last_line.strip():
+                # Calculate base indentation
+                base_indent = len(last_line) - len(last_line.lstrip())
+                if base_indent > 0:
+                    indent_str = ' ' * base_indent
+                    fixed_lines = []
+                    comp_lines = completion.split('\n')
+                    
+                    for i, line in enumerate(comp_lines):
+                        if i == 0:
+                            fixed_lines.append(line)
+                        elif line.strip():  # Only indent non-empty lines
+                            fixed_lines.append(indent_str + line.lstrip())
+                        else:
+                            fixed_lines.append(line)
+                    completion = '\n'.join(fixed_lines)
+                
+                # Remove duplicate content
+                before_last_line = last_line.strip()
+                if before_last_line and completion.lower().startswith(before_last_line.lower()):
+                    completion = completion[len(before_last_line):].lstrip()
 
-        # Balance brackets/quotes
+        # Fast bracket/quote balancing
         bracket_pairs = {"(": ")", "[": "]", "{": "}"}
-        quote_pairs   = {'"': '"', "'": "'"}
+        quote_chars = ['"', "'"]
+        
         for open_b, close_b in bracket_pairs.items():
-            if completion.count(open_b) > completion.count(close_b):
-                completion += close_b * (completion.count(open_b) - completion.count(close_b))
-        for q in quote_pairs:
-            if completion.count(q) % 2 != 0:
-                completion += q
+            open_count = completion.count(open_b)
+            close_count = completion.count(close_b)
+            if open_count > close_count and open_count - close_count <= 3:
+                completion += close_b * (open_count - close_count)
+        
+        for quote in quote_chars:
+            if completion.count(quote) % 2 == 1:
+                completion += quote
 
         return completion[:150]
 
-    async def get_completion(self, request: CodeCompletionRequest) -> Tuple[str, int, float]:
-        start = asyncio.get_event_loop().time()
-        try:
-            cache_key = f"{request.language}:{hash(str(request.context))}"
-            if cache_key in self.completion_cache:
-                processing_time = int((asyncio.get_event_loop().time() - start) * 1000)
-                cached = self.completion_cache[cache_key]
-                return cached, processing_time, 0.9
+    def _generate_cache_key(self, request: CodeCompletionRequest) -> str:
+        """Generate efficient cache key"""
+        context = request.context or {}
+        mode = context.get("mode", "menu")
+        
+        # Create compact hash of relevant context
+        before = context.get('before', '')[-150:]  # Last 150 chars of before
+        after = context.get('after', '')[:100]     # First 100 chars of after
+        context_str = f"{before}|{after}|{mode}"
+        lang_str = request.language.value if request.language else "python"
+        
+        # Include file path in key for project-specific completions
+        file_key = f"|{request.file_path}" if request.file_path else ""
+        
+        return f"{lang_str}:{hash(context_str)}{file_key}"
 
-            prompt, config = self.create_completion_prompt(request)
-            logger.info(f"Generating completion for {request.language}")
+    def _get_cached_completion(self, cache_key: str) -> Optional[str]:
+        """Fast cache lookup with TTL"""
+        if cache_key not in self.completion_cache:
+            self._cache_misses += 1
+            return None
+            
+        cached = self.completion_cache[cache_key]
+        if time.time() - cached.timestamp > CACHE_TTL:
+            del self.completion_cache[cache_key]
+            self._cache_misses += 1
+            return None
+            
+        self._cache_hits += 1
+        return cached.completion
 
-            completion_text, success = await ai_model.generate_code_completion(
-                prompt=prompt,
-                language=request.language.value if request.language else "python",
-                temperature=config["temperature"],
-                max_tokens=config["max_tokens"],
-                timeout=10
+    def _cache_completion(self, cache_key: str, completion: str, confidence: float):
+        """Cache with LRU-style eviction"""
+        # Aggressive cache cleanup for memory efficiency
+        if len(self.completion_cache) >= 75:
+            # Remove oldest entries
+            sorted_keys = sorted(
+                self.completion_cache.keys(),
+                key=lambda k: self.completion_cache[k].timestamp
             )
+            for key in sorted_keys[:25]:  # Remove oldest 25
+                del self.completion_cache[key]
+
+        self.completion_cache[cache_key] = CachedCompletion(
+            completion=completion,
+            timestamp=time.time(),
+            confidence=confidence
+        )
+
+    async def _call_model(self, prompt: str, language_str: str, config: Dict[str, Any], mode: str) -> Tuple[str, bool]:
+        """
+        Optimized model call compatible with your existing ai_model interface
+        """
+        # Use env-driven parameters by mode
+        max_tokens = INLINE_MAX_TOKENS if mode == "inline" else MENU_MAX_TOKENS
+        timeout = INLINE_TIMEOUT if mode == "inline" else MENU_TIMEOUT
+        temperature = TEMPERATURE
+
+        # Build kwargs
+        kw = {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "timeout": timeout,
+        }
+        if TOP_P_ENV is not None:
+            kw["top_p"] = TOP_P_ENV
+
+        # Try your existing model call patterns with optimizations
+        try:
+            # 1) Preferred kwargs signature (your current pattern)
+            result = await ai_model.generate_code_completion(
+                prompt=prompt, 
+                language=language_str, 
+                **kw
+            )
+            if isinstance(result, tuple) and len(result) == 2:
+                return result  # (text, success)
+            return (str(result or ""), True)
+            
+        except TypeError as e:
+            logger.debug(f"Model kwargs unsupported, falling back: {e}")
+
+        # 2) Fast fallback to minimal interface
+        try:
+            result = await ai_model.generate_code_completion(prompt, language_str)
+            if isinstance(result, tuple) and len(result) == 2:
+                return result
+            return (str(result or ""), True)
+        except Exception as e:
+            logger.warning(f"All model call patterns failed: {e}")
+            return ("", False)
+
+    def _calculate_confidence(self, completion: str, processing_time: int, mode: str) -> float:
+        """Fast confidence calculation"""
+        if not completion.strip():
+            return 0.0
+        
+        # Base confidence by mode
+        base_confidence = 0.75 if mode == "inline" else 0.8
+        
+        # Length bonus
+        if len(completion) > 10:
+            base_confidence += 0.1
+        if len(completion) > 30:
+            base_confidence += 0.05
+            
+        # Speed bonus for inline mode
+        if mode == "inline" and processing_time < 1000:  # Under 1 second
+            base_confidence += 0.05
+        elif mode == "menu" and processing_time < 2000:  # Under 2 seconds
+            base_confidence += 0.05
+            
+        return min(0.95, base_confidence)
+
+    async def get_completion(self, request: CodeCompletionRequest) -> Tuple[str, int, float]:
+        """Main completion method optimized for speed"""
+        start_time = time.perf_counter()
+        
+        try:
+            # Fast validation
+            if not request.text or not request.text.strip():
+                return "", 0, 0.0
+
+            lang_enum = request.language or SupportedLanguage.PYTHON
+            context = request.context or {}
+            mode = context.get("mode", "menu").lower()
+
+            # Generate cache key
+            cache_key = self._generate_cache_key(request)
+            
+            # Check cache first
+            cached_completion = self._get_cached_completion(cache_key)
+            if cached_completion:
+                processing_time = int((time.perf_counter() - start_time) * 1000)
+                logger.debug(f"Cache hit for {mode} completion: {processing_time}ms")
+                return cached_completion, processing_time, 0.9
+
+            # Create prompt
+            prompt, config = self.create_completion_prompt(request)
+            logger.info(f"Generating {mode} completion for {lang_enum.value}")
+            
+            # Call model with optimizations
+            completion_text, success = await self._call_model(
+                prompt, lang_enum.value, config, mode
+            )
+            
             if not success or not completion_text:
-                return "", int((asyncio.get_event_loop().time() - start) * 1000), 0.0
+                processing_time = int((time.perf_counter() - start_time) * 1000)
+                logger.warning(f"Model call failed for {mode} mode in {processing_time}ms")
+                return "", processing_time, 0.0
 
-            completion = self.post_process_completion(completion_text, request.language or SupportedLanguage.PYTHON)
+            # Post-process
+            completion = self.post_process_completion(completion_text, lang_enum)
+            
+            if not completion.strip():
+                processing_time = int((time.perf_counter() - start_time) * 1000)
+                return "", processing_time, 0.0
 
-            confidence = 0.8 if completion and len(completion.strip()) > 5 else 0.0
-            if completion and len(completion) > 20:
-                confidence = min(0.95, confidence + 0.1)
+            # Calculate final metrics
+            processing_time = int((time.perf_counter() - start_time) * 1000)
+            confidence = self._calculate_confidence(completion, processing_time, mode)
 
-            if completion and len(completion.strip()) > 2:
-                if len(self.completion_cache) > 50:
-                    oldest_key = next(iter(self.completion_cache))
-                    del self.completion_cache[oldest_key]
-                self.completion_cache[cache_key] = completion
+            # Cache successful result
+            if completion.strip():
+                self._cache_completion(cache_key, completion, confidence)
 
-            processing_time = int((asyncio.get_event_loop().time() - start) * 1000)
+            logger.debug(f"{mode.title()} completion: {len(completion)} chars, "
+                        f"{processing_time}ms, confidence {confidence:.2f}")
+
             return completion, processing_time, confidence
 
-        except Exception as e:
-            logger.error(f"Code completion error: {e}")
-            processing_time = int((asyncio.get_event_loop().time() - start) * 1000)
+        except asyncio.TimeoutError:
+            processing_time = int((time.perf_counter() - start_time) * 1000)
+            logger.warning(f"Completion timeout after {processing_time}ms (mode: {mode})")
             return "", processing_time, 0.0
+            
+        except Exception as e:
+            processing_time = int((time.perf_counter() - start_time) * 1000)
+            logger.error(f"Code completion error: {e}", exc_info=True)
+            return "", processing_time, 0.0
+
+    async def get_multiple_completions(self, request: CodeCompletionRequest, 
+                                     count: int = 3) -> List[Tuple[str, float]]:
+        """Get multiple completion suggestions (for menu mode)"""
+        if count <= 1:
+            completion, _, confidence = await self.get_completion(request)
+            return [(completion, confidence)] if completion else []
+
+        results = []
+        seen_completions = set()
+        
+        # Try to get diverse completions by varying parameters slightly
+        for i in range(min(count, 5)):  # Max 5 attempts
+            try:
+                # Create a slightly modified request for diversity
+                modified_context = request.context.copy() if request.context else {}
+                modified_context["completion_variant"] = i  # Add to cache key for diversity
+                
+                modified_request = CodeCompletionRequest(
+                    text=request.text,
+                    language=request.language,
+                    context=modified_context,
+                    file_path=request.file_path,
+                    user_id=request.user_id
+                )
+                
+                completion, _, confidence = await self.get_completion(modified_request)
+                
+                # Only add unique completions
+                if completion and completion not in seen_completions:
+                    results.append((completion, confidence))
+                    seen_completions.add(completion)
+                    
+                if len(results) >= count:
+                    break
+                    
+            except Exception as e:
+                logger.warning(f"Multiple completion attempt {i} failed: {e}")
+                continue
+                
+        return results
+
+    def clear_cache(self):
+        """Clear completion cache"""
+        self.completion_cache.clear()
+        self._cache_hits = 0
+        self._cache_misses = 0
+        logger.info("Completion cache cleared")
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache performance statistics"""
+        total_requests = self._cache_hits + self._cache_misses
+        hit_rate = (self._cache_hits / total_requests * 100) if total_requests > 0 else 0
+        
+        return {
+            "cache_size": len(self.completion_cache),
+            "cache_hits": self._cache_hits,
+            "cache_misses": self._cache_misses,
+            "hit_rate_percent": round(hit_rate, 2),
+            "total_requests": total_requests,
+            "memory_usage_estimate": len(self.completion_cache) * 200  # Rough estimate in bytes
+        }
+
+    def _cleanup_expired_cache(self):
+        """Remove expired cache entries"""
+        current_time = time.time()
+        expired_keys = [
+            key for key, cached in self.completion_cache.items()
+            if current_time - cached.timestamp > CACHE_TTL
+        ]
+        
+        for key in expired_keys:
+            del self.completion_cache[key]
+            
+        if expired_keys:
+            logger.debug(f"Cleaned up {len(expired_keys)} expired cache entries")
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Service health check with performance metrics"""
+        start = time.perf_counter()
+        
+        # Test basic inline completion
+        test_request = CodeCompletionRequest(
+            text="def hello():",
+            language=SupportedLanguage.PYTHON,
+            context={"before": "def hello():", "after": "", "mode": "inline"},
+            user_id="health_check"
+        )
+        
+        try:
+            completion, processing_time, confidence = await self.get_completion(test_request)
+            success = bool(completion)
+        except Exception as e:
+            success = False
+            processing_time = int((time.perf_counter() - start) * 1000)
+            confidence = 0.0
+            logger.error(f"Health check failed: {e}")
+
+        # Cleanup expired entries
+        self._cleanup_expired_cache()
+        
+        return {
+            "status": "healthy" if success else "degraded",
+            "test_completion_success": success,
+            "test_processing_time_ms": processing_time,
+            "test_confidence": confidence,
+            "service_uptime_check": int((time.perf_counter() - start) * 1000),
+            **self.get_cache_stats()
+        }
+
+    def configure_performance(self, speed_mode: str = "balanced"):
+        """Configure service for different performance profiles"""
+        global INLINE_MAX_TOKENS, MENU_MAX_TOKENS, INLINE_TIMEOUT, MENU_TIMEOUT
+        
+        if speed_mode == "ultra_fast":
+            INLINE_MAX_TOKENS = 20
+            MENU_MAX_TOKENS = 50
+            INLINE_TIMEOUT = 1
+            MENU_TIMEOUT = 2
+            logger.info("Ultra-fast mode: maximum speed, minimal tokens")
+            
+        elif speed_mode == "fast":
+            INLINE_MAX_TOKENS = 25
+            MENU_MAX_TOKENS = 75
+            INLINE_TIMEOUT = 1.5
+            MENU_TIMEOUT = 3
+            logger.info("Fast mode: quick responses with good quality")
+            
+        elif speed_mode == "balanced":
+            INLINE_MAX_TOKENS = 30
+            MENU_MAX_TOKENS = 100
+            INLINE_TIMEOUT = 2
+            MENU_TIMEOUT = 4
+            logger.info("Balanced mode: good speed and quality")
+            
+        elif speed_mode == "quality":
+            INLINE_MAX_TOKENS = 40
+            MENU_MAX_TOKENS = 150
+            INLINE_TIMEOUT = 3
+            MENU_TIMEOUT = 6
+            logger.info("Quality mode: slower but better completions")
+
+
+
+
+async def initialize_code_completion_service():
+    """Initialize and configure the completion service"""
+    
+    # Configure based on environment or default to fast mode
+    performance_mode = os.getenv("CODE_COMPLETION_PERFORMANCE_MODE", "fast")
+    code_completion_service.configure_performance(performance_mode)
+    
+    # Optional: Pre-warm cache with common patterns
+    common_patterns = [
+        CodeCompletionRequest(
+            text="def ",
+            language=SupportedLanguage.PYTHON,
+            context={"before": "def ", "after": "", "mode": "inline"},
+            user_id="system"
+        ),
+        CodeCompletionRequest(
+            text="import ",
+            language=SupportedLanguage.PYTHON,
+            context={"before": "import ", "after": "", "mode": "inline"},
+            user_id="system"
+        ),
+        CodeCompletionRequest(
+            text="class ",
+            language=SupportedLanguage.PYTHON,
+            context={"before": "class ", "after": "", "mode": "inline"},
+            user_id="system"
+        ),
+    ]
+    
+    try:
+        # Don't block startup on cache warming
+        asyncio.create_task(code_completion_service.warmup_cache(common_patterns))
+    except Exception as e:
+        logger.warning(f"Cache warmup failed: {e}")
+    
+    logger.info("Code completion service initialized")
+
+
+# Performance monitoring
+class CompletionMetrics:
+    """Track completion performance metrics"""
+    
+    def __init__(self):
+        self.total_completions = 0
+        self.total_time_ms = 0
+        self.inline_completions = 0
+        self.menu_completions = 0
+        self.timeouts = 0
+        self.errors = 0
+    
+    def record_completion(self, mode: str, time_ms: int, success: bool):
+        """Record completion metrics"""
+        self.total_completions += 1
+        self.total_time_ms += time_ms
+        
+        if mode == "inline":
+            self.inline_completions += 1
+        else:
+            self.menu_completions += 1
+            
+        if not success:
+            self.errors += 1
+    
+    def record_timeout(self):
+        """Record timeout event"""
+        self.timeouts += 1
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get performance statistics"""
+        avg_time = self.total_time_ms / max(1, self.total_completions)
+        success_rate = ((self.total_completions - self.errors) / max(1, self.total_completions)) * 100
+        
+        return {
+            "total_completions": self.total_completions,
+            "average_time_ms": round(avg_time, 2),
+            "inline_completions": self.inline_completions,
+            "menu_completions": self.menu_completions,
+            "success_rate_percent": round(success_rate, 2),
+            "timeouts": self.timeouts,
+            "errors": self.errors
+        }
+
+# Global metrics instance
+completion_metrics = CompletionMetrics()
+
+
 
 class ChatService:
     """Service for handling chat functionality"""
@@ -360,7 +841,7 @@ class ChatService:
 
         # Keep last N complete conversations in exact chronological order
         # This preserves the natural flow: system(file) → user → assistant → system(file) → user → etc.
-        max_total_messages = int(os.getenv("CHAT_CONTEXT_MESSAGES", "20"))
+        
         
         # Simply take the last N messages in chronological order
         if len(history) > max_total_messages:
@@ -839,6 +1320,8 @@ class FileService:
             return text.strip() or "[No text detected by OCR]"
         except Exception as e:
             return f"[Error performing OCR: {e}]"
+#code_completion_service = CodeCompletionService()
+# Create the global service instance
 code_completion_service = CodeCompletionService()
 
 

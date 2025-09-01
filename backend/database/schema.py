@@ -1,7 +1,9 @@
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
+# from __future__ import annotations
+from pathlib import Path
 import os
 
 
@@ -31,7 +33,7 @@ class SupportedLanguage(str, Enum):
     KOTLIN = "kotlin"
     DART = "dart"
     
-EXTENSION_LANGUAGE = {
+EXTENSION_LANGUAGE : Dict[str, SupportedLanguage] = {
     ".py": SupportedLanguage.PYTHON,
     ".js": SupportedLanguage.JAVASCRIPT,
     ".ts": SupportedLanguage.TYPESCRIPT,
@@ -108,11 +110,37 @@ class CloseChatRequest(BaseModel):
 
 
 # Code completion
+# class CodeCompletionRequest(BaseModel):
+#     text: str = Field(..., min_length=1, max_length=2000, description="Code context")
+#     session_id: Optional[str] = Field(default="code_completion", max_length=255)
+#     user_id: str = Field(..., max_length=50, description="User identifier")
+#     source: Optional[RequestSource] = RequestSource.AUTOCOMPLETE
+#     language: Optional[SupportedLanguage] = None
+#     file_path: Optional[str] = Field(None, max_length=500)
+#     cursor_position: Optional[Dict[str, int]] = Field(None, description="Cursor line/column position")
+#     context: Optional[Dict[str, Any]] = Field(None, description="Before/after code context")
+
+#     @field_validator("text")
+#     @classmethod
+#     def _non_empty_code(cls, v: str) -> str:
+#         if not v or not v.strip():
+#             raise ValueError("Code text cannot be empty")
+#         return v.strip()
+
+#     @field_validator("file_path", mode="after")
+#     @classmethod
+#     def _set_language_from_extension(cls, v: Optional[str], values: Dict[str, Any]) -> Optional[str]:
+#         if v:
+#             ext = os.path.splitext(v)[1].lower()
+#             if ext in EXTENSION_LANGUAGE:
+#                 values["language"] = EXTENSION_LANGUAGE[ext]
+#         return v
+
 class CodeCompletionRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="Code context")
     session_id: Optional[str] = Field(default="code_completion", max_length=255)
     user_id: str = Field(..., max_length=50, description="User identifier")
-    source: Optional[RequestSource] = RequestSource.AUTOCOMPLETE
+    source: Optional[str] = Field(default="autocomplete")
     language: Optional[SupportedLanguage] = None
     file_path: Optional[str] = Field(None, max_length=500)
     cursor_position: Optional[Dict[str, int]] = Field(None, description="Cursor line/column position")
@@ -125,14 +153,20 @@ class CodeCompletionRequest(BaseModel):
             raise ValueError("Code text cannot be empty")
         return v.strip()
 
-    @field_validator("file_path", mode="after")
+    @model_validator(mode="before")
     @classmethod
-    def _set_language_from_extension(cls, v: Optional[str], values: Dict[str, Any]) -> Optional[str]:
-        if v:
-            ext = os.path.splitext(v)[1].lower()
-            if ext in EXTENSION_LANGUAGE:
-                values["language"] = EXTENSION_LANGUAGE[ext]
-        return v
+    def _set_language_from_extension(cls, data: Any) -> Any:
+        """
+        Pydantic v2: mutate the incoming dict here (before field parsing).
+        We cannot set other fields from a field_validator.
+        """
+        if isinstance(data, dict) and not data.get("language"):
+            fp = data.get("file_path")
+            if fp:
+                mapped = detect_language_from_filename(fp)
+                if mapped:
+                    data["language"] = mapped
+        return data
 
 # Responses
 
@@ -184,14 +218,23 @@ class ChatHistoryResponse(BaseModel):
     total_sessions: int = Field(..., description="Total number of sessions")
     page_info: Dict[str, int] = Field(..., description="Pagination info")
 
+# class CodeCompletionResponse(BaseModel):
+#     completion: str = Field(..., description="Generated code completion")
+#     confidence: float = Field(..., ge=0.0, le=1.0, description="Completion confidence score")
+#     language: SupportedLanguage
+#     suggestions_count: int = Field(default=1, description="Number of suggestions provided")
+#     processing_time_ms: Optional[int] = Field(None, description="Processing time in milliseconds")
+#     alternative_completions: Optional[List[str]] = Field(None, description="Alternative completions")
+#     user_id: str = Field(..., description="User identifier")
+
 class CodeCompletionResponse(BaseModel):
-    completion: str = Field(..., description="Generated code completion")
-    confidence: float = Field(..., ge=0.0, le=1.0, description="Completion confidence score")
+    completion: str
+    confidence: float
     language: SupportedLanguage
-    suggestions_count: int = Field(default=1, description="Number of suggestions provided")
-    processing_time_ms: Optional[int] = Field(None, description="Processing time in milliseconds")
-    alternative_completions: Optional[List[str]] = Field(None, description="Alternative completions")
-    user_id: str = Field(..., description="User identifier")
+    suggestions_count: int = 1
+    processing_time_ms: Optional[int] = None
+    alternative_completions: Optional[List[str]] = None
+    user_id: str
 
 
 # Database models (Postgres)

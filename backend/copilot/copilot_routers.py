@@ -457,18 +457,49 @@ async def chat_form(
     return response
 
 # Code completion
+# @code_router.post("/code-completion", response_model=CodeCompletionResponse)
+# async def code_completion(request: CodeCompletionRequest):
+#     """Handle code completion requests."""
+#     try:
+#         logger.info(f"Code completion request - Language: {request.language}")
+
+#         if not request.text.strip():
+#             raise HTTPException(status_code=400, detail="Code text cannot be empty")
+#         if len(request.text) > 2000:
+#             raise HTTPException(status_code=400, detail="Code context too long (max 2000 characters)")
+
+#         completion, processing_time, confidence = await code_completion_service.get_completion(request)
+
+#         return CodeCompletionResponse(
+#             completion=completion,
+#             confidence=confidence,
+#             language=(request.language.value if request.language else "python"),
+#             suggestions_count=1 if completion else 0,
+#             processing_time_ms=processing_time,
+#             user_id=request.user_id,
+#         )
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Code completion error: {e}")
+#         raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @code_router.post("/code-completion", response_model=CodeCompletionResponse)
 async def code_completion(request: CodeCompletionRequest):
     """Handle code completion requests."""
     try:
-        logger.info(f"Code completion request - Language: {request.language}")
+        logger.info(f"Code completion request - Language: {request.language}, Text length: {len(request.text)}")
+        logger.debug(f"Code completion context: {request.context}")
 
         if not request.text.strip():
             raise HTTPException(status_code=400, detail="Code text cannot be empty")
-        if len(request.text) > 2000:
-            raise HTTPException(status_code=400, detail="Code context too long (max 2000 characters)")
+        if len(request.text) > 10000:  # Increased limit for code completion
+            raise HTTPException(status_code=400, detail="Code context too long (max 10k characters)")
 
         completion, processing_time, confidence = await code_completion_service.get_completion(request)
+
+        logger.info(f"Completion generated - Length: {len(completion)}, Confidence: {confidence}")
 
         return CodeCompletionResponse(
             completion=completion,
@@ -481,8 +512,27 @@ async def code_completion(request: CodeCompletionRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Code completion error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"Code completion error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Code completion failed: {str(e)}")
+    
+@code_router.get("/code-completion/test")
+async def test_completion():
+    """Test endpoint to verify completion service is working."""
+    try:
+        return {
+            "status": "ok",
+            "service_initialized": True,
+            "model_available": ai_model.is_initialized,
+            "timestamp": datetime.datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Test completion error: {e}")
+        return {
+            "status": "error", 
+            "error": str(e),
+            "timestamp": datetime.datetime.utcnow().isoformat()
+        }
+
 
 @chat_router.get("/chat/sessions", response_model=ChatHistoryResponse)
 async def list_sessions(user_id: str, limit: int = 30, offset: int = 0):

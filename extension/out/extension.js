@@ -40,40 +40,49 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
 // export function activate(context: vscode.ExtensionContext) {
-//   console.log("[RaaS] Extension activating...");
-//   // Register chat view provider
+//   console.log("[RaaS] Extension activating…");
+//   // ---- Chat webview
 //   const chatProvider = new RaasChatViewProvider(context.extensionUri);
 //   context.subscriptions.push(
 //     vscode.window.registerWebviewViewProvider("raasChatView", chatProvider, {
-//       webviewOptions: {
-//         retainContextWhenHidden: true
-//       }
+//       webviewOptions: { retainContextWhenHidden: true }
 //     })
 //   );
-//   // Register commands
+//   // ---- Commands
 //   context.subscriptions.push(
-//     vscode.commands.registerCommand("raas.openChat", () => {
-//       vscode.commands.executeCommand("workbench.view.extension.raasChat");
+//     vscode.commands.registerCommand("raas.openChat", async () => {
+//       await vscode.commands.executeCommand("workbench.view.extension.raasChat");
 //     })
 //   );
-//   // Register completion providers with better language support
-//   const supportedLanguages = [
-//     "python", "javascript", "typescript", "java", "cpp", "c", 
+//   // ---- Languages to support
+//   const langs = [
+//     // core
+//     "python", "javascript", "typescript", "java", "cpp", "c",
 //     "csharp", "go", "rust", "php", "ruby", "swift", "kotlin",
-//     "sql", "html", "css", "dart", "scala"
+//     "sql", "html", "css", "dart", "scala",
+//     // extras that VS Code often uses
+//     "json", "yaml", "markdown", "plaintext",
+//     "shellscript", "powershell",
+//     "javascriptreact", "typescriptreact"
 //   ];
-//   // Standard completion provider (Ctrl+Space)
+//   // Use schemes so untitled/new files get completions too
+//   const selector: vscode.DocumentSelector = [
+//     ...langs.map(l => ({ language: l, scheme: "file" as const })),
+//     ...langs.map(l => ({ language: l, scheme: "untitled" as const }))
+//   ];
+//   // ---- Trigger characters (standard completion)
+//   const triggers = [".", " ", "=", ":", "(", "[", "{", ",", "'", "\"", ">", "<", "/"];
+//   // ---- Register providers
 //   context.subscriptions.push(
 //     vscode.languages.registerCompletionItemProvider(
-//       supportedLanguages.map(lang => ({ language: lang })),
+//       selector,
 //       new RaaSCompletionProvider(),
-//       ".", " ", "\n", "\t", "(", "[", "{"
+//       ...triggers
 //     )
 //   );
-//   // Inline completion provider (ghost text)
 //   context.subscriptions.push(
 //     vscode.languages.registerInlineCompletionItemProvider(
-//       supportedLanguages.map(lang => ({ language: lang })),
+//       selector,
 //       new RaaSInlineCompletionProvider()
 //     )
 //   );
@@ -86,38 +95,92 @@ const vscode = __importStar(require("vscode"));
 const chatViewProviders_1 = require("./chat/chatViewProviders");
 const completionProvider_1 = require("./completion/completionProvider");
 const inlineProvider_1 = require("./completion/inlineProvider");
+const apiClient_1 = require("./apiClient");
 function activate(context) {
-    console.log("[RaaS] Extension activating…");
+    console.log("[RaaS] Extension activating...");
     // ---- Chat webview
     const chatProvider = new chatViewProviders_1.RaasChatViewProvider(context.extensionUri);
     context.subscriptions.push(vscode.window.registerWebviewViewProvider("raasChatView", chatProvider, {
         webviewOptions: { retainContextWhenHidden: true }
     }));
-    // ---- Commands
-    context.subscriptions.push(vscode.commands.registerCommand("raas.openChat", async () => {
-        await vscode.commands.executeCommand("workbench.view.extension.raasChat");
-    }));
     // ---- Languages to support
     const langs = [
-        // core
         "python", "javascript", "typescript", "java", "cpp", "c",
         "csharp", "go", "rust", "php", "ruby", "swift", "kotlin",
         "sql", "html", "css", "dart", "scala",
-        // extras that VS Code often uses
         "json", "yaml", "markdown", "plaintext",
         "shellscript", "powershell",
         "javascriptreact", "typescriptreact"
     ];
-    // Use schemes so untitled/new files get completions too
     const selector = [
         ...langs.map(l => ({ language: l, scheme: "file" })),
         ...langs.map(l => ({ language: l, scheme: "untitled" }))
     ];
-    // ---- Trigger characters (standard completion)
+    // ---- Trigger characters
     const triggers = [".", " ", "=", ":", "(", "[", "{", ",", "'", "\"", ">", "<", "/"];
     // ---- Register providers
-    context.subscriptions.push(vscode.languages.registerCompletionItemProvider(selector, new completionProvider_1.RaaSCompletionProvider(), ...triggers));
-    context.subscriptions.push(vscode.languages.registerInlineCompletionItemProvider(selector, new inlineProvider_1.RaaSInlineCompletionProvider()));
+    const completionProvider = new completionProvider_1.RaaSCompletionProvider();
+    const inlineProvider = new inlineProvider_1.RaaSInlineCompletionProvider();
+    context.subscriptions.push(vscode.languages.registerCompletionItemProvider(selector, completionProvider, ...triggers));
+    context.subscriptions.push(vscode.languages.registerInlineCompletionItemProvider(selector, inlineProvider));
+    // ---- Commands
+    context.subscriptions.push(vscode.commands.registerCommand("raas.openChat", async () => {
+        await vscode.commands.executeCommand("workbench.view.extension.raasChat");
+    }));
+    // Debug command to test completion endpoint
+    context.subscriptions.push(vscode.commands.registerCommand("raas.testCompletion", async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showWarningMessage("No active editor found");
+            return;
+        }
+        try {
+            vscode.window.showInformationMessage("Testing completion endpoint...");
+            const document = editor.document;
+            const position = editor.selection.active;
+            // Get some context
+            const beforeText = document.getText(new vscode.Range(new vscode.Position(Math.max(0, position.line - 5), 0), position));
+            console.log(`[RaaS Debug] Testing completion for language: ${document.languageId}`);
+            const response = await apiClient_1.apiClient.completeCode({
+                text: beforeText + "\n# Complete this code",
+                language: document.languageId,
+                context: {
+                    before: beforeText,
+                    after: "",
+                    line: position.line,
+                    mode: "test"
+                },
+                user_id: "sharif_111",
+                file_path: document.uri.fsPath
+            });
+            if (response.completion) {
+                vscode.window.showInformationMessage(`Completion successful! Length: ${response.completion.length}`);
+                console.log(`[RaaS Debug] Completion result:`, response.completion);
+            }
+            else {
+                vscode.window.showWarningMessage("No completion returned from API");
+            }
+        }
+        catch (error) {
+            console.error("[RaaS Debug] Test completion failed:", error);
+            vscode.window.showErrorMessage(`Completion test failed: ${error.message}`);
+        }
+    }));
+    // Command to check API health
+    context.subscriptions.push(vscode.commands.registerCommand("raas.checkHealth", async () => {
+        try {
+            const isHealthy = await apiClient_1.apiClient.checkHealth();
+            if (isHealthy) {
+                vscode.window.showInformationMessage("RaaS API is healthy!");
+            }
+            else {
+                vscode.window.showErrorMessage("RaaS API health check failed");
+            }
+        }
+        catch (error) {
+            vscode.window.showErrorMessage(`Health check error: ${error.message}`);
+        }
+    }));
     console.log("[RaaS] Extension activated successfully!");
 }
 function deactivate() {
