@@ -162,7 +162,7 @@
     .chip .x:hover { color:#fff; }
 
     .row {
-      display:grid; grid-template-columns: 1fr 36px 120px; gap:8px; align-items:end;
+      display:grid; grid-template-columns: 1fr 36px 72px; gap:8px; align-items:end;
     }
     #text {
       width:100%; min-height:38px; max-height:140px; resize:vertical;
@@ -173,114 +173,13 @@
 
     .btn {
       height:38px; border-radius:6px; border:1px solid #2c2c2c; background:#1a1a1a; color:#d0d6dc;
-      cursor:pointer; font-size: 12px;
+      cursor:pointer;
     }
     .btn:hover { background:#222; }
-    
-    /* Dropdown Styles */
-    .dropdown-container {
-      position: relative;
-      display: inline-block;
-    }
-
-    .dropdown-btn {
-      height:38px; border-radius:6px; border:1px solid #2c2c2c; background:#1a1a1a; color:#d0d6dc;
-      cursor:pointer; padding: 0 12px; display: flex; align-items: center; gap: 6px;
-      font-size: 12px; font-weight: 500; min-width: 110px; justify-content: space-between;
-    }
-
-    .dropdown-btn:hover { background:#222; }
-
-    .dropdown-btn.ask-mode {
-      background: var(--accent); 
-      border-color: #2b65c8; 
-      color: #fff;
-    }
-
-    .dropdown-btn.agent-mode {
-      background: #28a745; 
-      border-color: #1e7e34; 
-      color: #fff;
-    }
-
-    .dropdown-arrow {
-      width: 0;
-      height: 0;
-      border-left: 4px solid transparent;
-      border-right: 4px solid transparent;
-      border-top: 4px solid currentColor;
-      transition: transform 0.2s ease;
-    }
-
-    .dropdown-container.open .dropdown-arrow {
-      transform: rotate(180deg);
-    }
-
-    .dropdown-menu {
-      position: absolute;
-      bottom: 100%;
-      left: 0;
-      right: 0;
-      background: #2a2a2a;
-      border: 1px solid #3e3e42;
-      border-radius: 6px;
-      margin-bottom: 4px;
-      z-index: 1000;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      display: none;
-    }
-
-    .dropdown-container.open .dropdown-menu {
-      display: block;
-    }
-
-    .dropdown-item {
-      padding: 10px 12px;
-      cursor: pointer;
-      border-bottom: 1px solid #3e3e42;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .dropdown-item:last-child {
-      border-bottom: none;
-    }
-
-    .dropdown-item:hover {
-      background: #333;
-    }
-
-    .dropdown-item-title {
-      font-weight: 500;
-      color: #e6e6e6;
-      font-size: 12px;
-    }
-
-    .dropdown-item-desc {
-      font-size: 10px;
-      color: #a0a6ad;
-      line-height: 1.3;
-    }
-
-    .dropdown-item.disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .dropdown-item.disabled:hover {
-      background: transparent;
-    }
-
     #send {
-      background:var(--accent); border-color:#2b65c8; color:#fff; font-weight:600;
+      background:var(--accent); border-color:#2b65c8; color:#0b1320; font-weight:600;
     }
     #send:disabled { opacity:.5; cursor:default; }
-
-    /* Update the row grid to accommodate dropdown */
-    .row {
-      display:grid; grid-template-columns: 1fr 36px 120px 72px; gap:8px; align-items:end;
-    }
   </style>
 </head>
 <body>
@@ -295,25 +194,6 @@
       <div class="row">
         <textarea id="text" rows="2" placeholder="Type your question here… (Enter = Send, Shift+Enter = newline)"></textarea>
         <button id="attach" class="btn" title="Attach files">📎</button>
-        
-        <!-- Dropdown Button -->
-        <div class="dropdown-container" id="modeDropdown">
-          <button class="dropdown-btn ask-mode" id="dropdownBtn">
-            <span id="dropdownText">Ask</span>
-            <span class="dropdown-arrow"></span>
-          </button>
-          <div class="dropdown-menu" id="dropdownMenu">
-            <div class="dropdown-item" data-mode="ask">
-              <div class="dropdown-item-title">Ask</div>
-              <div class="dropdown-item-desc">Chat with AI about current script & get responses</div>
-            </div>
-            <div class="dropdown-item disabled" data-mode="agent">
-              <div class="dropdown-item-title">Agent OS</div>
-              <div class="dropdown-item-desc">Auto-write code & run project setup (Coming Soon)</div>
-            </div>
-          </div>
-        </div>
-
         <button id="send" class="btn">Send</button>
         <input id="file" type="file" multiple style="display:none" />
       </div>
@@ -331,15 +211,6 @@
     const file  = document.getElementById('file');
     const chips = document.getElementById('chips');
 
-    // Dropdown elements
-    const modeDropdown = document.getElementById('modeDropdown');
-    const dropdownBtn = document.getElementById('dropdownBtn');
-    const dropdownMenu = document.getElementById('dropdownMenu');
-    const dropdownText = document.getElementById('dropdownText');
-
-    // Current mode state
-    let currentMode = 'ask';
-
     let pending = []; // File[]
 
     // === NEW: Stable session id persisted in webview state ===
@@ -351,41 +222,6 @@
     const SESSION_ID = state.sessionId;
     // (Optional) Let the extension know the session id exists
     vscode.postMessage({ type: 'init-session', sessionId: SESSION_ID });
-
-    // Dropdown functionality
-    dropdownBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      modeDropdown.classList.toggle('open');
-    });
-
-    // Close dropdown when clicking outside
-    document.addEventListener('click', (e) => {
-      if (!modeDropdown.contains(e.target)) {
-        modeDropdown.classList.remove('open');
-      }
-    });
-
-    // Handle dropdown item selection
-    dropdownMenu.addEventListener('click', (e) => {
-      const item = e.target.closest('.dropdown-item');
-      if (!item || item.classList.contains('disabled')) return;
-
-      const mode = item.dataset.mode;
-      currentMode = mode;
-      
-      // Update button appearance
-      dropdownBtn.className = `dropdown-btn ${mode}-mode`;
-      dropdownText.textContent = item.querySelector('.dropdown-item-title').textContent;
-      
-      // Update placeholder based on mode
-      if (mode === 'ask') {
-        text.placeholder = "Ask about your code... (Enter = Send, Shift+Enter = newline)";
-      } else if (mode === 'agent') {
-        text.placeholder = "Describe what you want to build... (Coming Soon)";
-      }
-      
-      modeDropdown.classList.remove('open');
-    });
 
     function bubble(content, who='bot', isTyping=false) {
       const b = document.createElement('div');
@@ -472,7 +308,7 @@
       );
 
       content = content.replace(/^##\s*(.*?)$/gm, '<h3 class="section-header">$1</h3>');
-      content = content.replace(/^#\s*(.*?)$/gm, '<h2 class="section-header">$2</h2>');
+      content = content.replace(/^#\s*(.*?)$/gm, '<h2 class="section-header">$1</h2>');
 
       content = content.replace(/\*\*([^*`]+)\*\*/g, '<strong class="highlight-bold">$1</strong>');
 
@@ -654,13 +490,6 @@
       const msg = text.value.trim();
       if (!msg && pending.length===0) return;
 
-      // Check current mode
-      if (currentMode === 'agent') {
-        bubble('Agent OS mode is coming soon! Currently in development. Please use Ask mode for now.', 'bot');
-        return;
-      }
-
-      // For Ask mode, proceed with normal chat
       if (msg) bubble(msg,'me');
       if (pending.length) bubbleFiles(pending,'me');
 
@@ -669,14 +498,8 @@
 
       const filesB64 = await Promise.all(pending.map(toB64));
 
-      // === CHANGED: include sessionId and mode on every message ===
-      vscode.postMessage({ 
-        type:'chat', 
-        text: msg, 
-        files: filesB64, 
-        sessionId: SESSION_ID,
-        mode: currentMode 
-      });
+      // === CHANGED: include sessionId on every message ===
+      vscode.postMessage({ type:'chat', text: msg, files: filesB64, sessionId: SESSION_ID });
 
       text.value = '';
       pending = [];
@@ -732,9 +555,6 @@
 
     // Initialize Prism autoloader
     Prism.plugins.autoloader.languages_path = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/';
-
-    // Initialize with Ask mode
-    text.placeholder = "Ask about your code... (Enter = Send, Shift+Enter = newline)";
   </script>
 </body>
 </html>
