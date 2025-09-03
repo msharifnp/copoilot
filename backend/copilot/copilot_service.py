@@ -317,7 +317,7 @@ COMPLETION:"""
             if completion.count(quote) % 2 == 1:
                 completion += quote
 
-        return completion[:150]
+        return completion[:500]
 
     def _generate_cache_key(self, request: CodeCompletionRequest) -> str:
         """Generate efficient cache key"""
@@ -368,49 +368,179 @@ COMPLETION:"""
             confidence=confidence
         )
 
+    # async def _call_model(self, prompt: str, language_str: str, config: Dict[str, Any], mode: str) -> Tuple[str, bool]:
+    #     """
+    #     Optimized model call compatible with your existing ai_model interface
+    #     """
+    #     # Use env-driven parameters by mode
+    #     max_tokens = INLINE_MAX_TOKENS if mode == "inline" else MENU_MAX_TOKENS
+    #     timeout = INLINE_TIMEOUT if mode == "inline" else MENU_TIMEOUT
+    #     temperature = TEMPERATURE
+
+    #     # Build kwargs
+    #     kw = {
+    #         "temperature": temperature,
+    #         "max_tokens": max_tokens,
+    #         "timeout": timeout,
+    #     }
+    #     if TOP_P_ENV is not None:
+    #         kw["top_p"] = TOP_P_ENV
+
+    #     # Try your existing model call patterns with optimizations
+    #     try:
+    #         # 1) Preferred kwargs signature (your current pattern)
+    #         result = await ai_model.generate_code_completion(
+    #             prompt=prompt, 
+    #             language=language_str, 
+    #             **kw
+    #         )
+    #         if isinstance(result, tuple) and len(result) == 2:
+    #             return result  # (text, success)
+    #         return (str(result or ""), True)
+            
+    #     except TypeError as e:
+    #         logger.debug(f"Model kwargs unsupported, falling back: {e}")
+
+    #     # 2) Fast fallback to minimal interface
+    #     try:
+    #         result = await ai_model.generate_code_completion(prompt, language_str)
+    #         if isinstance(result, tuple) and len(result) == 2:
+    #             return result
+    #         return (str(result or ""), True)
+    #     except Exception as e:
+    #         logger.warning(f"All model call patterns failed: {e}")
+    #         return ("", False)
+    
     async def _call_model(self, prompt: str, language_str: str, config: Dict[str, Any], mode: str) -> Tuple[str, bool]:
         """
-        Optimized model call compatible with your existing ai_model interface
+        Optimized model call with improved error handling and fallbacks
         """
         # Use env-driven parameters by mode
         max_tokens = INLINE_MAX_TOKENS if mode == "inline" else MENU_MAX_TOKENS
         timeout = INLINE_TIMEOUT if mode == "inline" else MENU_TIMEOUT
         temperature = TEMPERATURE
 
-        # Build kwargs
-        kw = {
+        # Build kwargs for testing different parameter combinations
+        full_kwargs = {
             "temperature": temperature,
             "max_tokens": max_tokens,
             "timeout": timeout,
         }
         if TOP_P_ENV is not None:
-            kw["top_p"] = TOP_P_ENV
+            full_kwargs["top_p"] = TOP_P_ENV
 
-        # Try your existing model call patterns with optimizations
+        # Try multiple fallback patterns with progressively fewer parameters
+        fallback_attempts = [
+            # Attempt 1: Full kwargs
+            {
+                "params": full_kwargs,
+                "description": "full kwargs"
+            },
+            # Attempt 2: Without timeout (common issue)
+            {
+                "params": {k: v for k, v in full_kwargs.items() if k != "timeout"},
+                "description": "without timeout"
+            },
+            # Attempt 3: Without top_p (might not be supported)
+            {
+                "params": {k: v for k, v in full_kwargs.items() if k not in ["timeout", "top_p"]},
+                "description": "without timeout and top_p"
+            },
+            # Attempt 4: Only basic parameters
+            {
+                "params": {"temperature": temperature, "max_tokens": max_tokens},
+                "description": "basic params only"
+            },
+            # Attempt 5: Just temperature
+            {
+                "params": {"temperature": temperature},
+                "description": "temperature only"
+            },
+            # Attempt 6: No kwargs at all
+            {
+                "params": {},
+                "description": "no kwargs"
+            }
+        ]
+
+        # Try each fallback approach
+        for attempt_num, attempt in enumerate(fallback_attempts, 1):
+            try:
+                logger.debug(f"Model call attempt {attempt_num}: {attempt['description']}")
+                
+                if attempt["params"]:
+                    result = await ai_model.generate_code_completion(
+                        prompt=prompt,
+                        language=language_str,
+                        **attempt["params"]
+                    )
+                else:
+                    # Positional arguments only
+                    result = await ai_model.generate_code_completion(prompt, language_str)
+                
+                # Handle different return types
+                if isinstance(result, tuple) and len(result) == 2:
+                    logger.debug(f"Model call succeeded with {attempt['description']}")
+                    return result  # (text, success)
+                elif result is not None:
+                    logger.debug(f"Model call succeeded with {attempt['description']} - converting to tuple")
+                    return (str(result), True)
+                else:
+                    logger.warning(f"Model returned None with {attempt['description']}")
+                    continue  # Try next fallback
+                    
+            except TypeError as e:
+                logger.debug(f"TypeError with {attempt['description']}: {e}")
+                continue  # Try next fallback
+                
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout with {attempt['description']} after {timeout}s")
+                continue  # Try next fallback with potentially no timeout
+                
+            except Exception as e:
+                logger.warning(f"Exception with {attempt['description']}: {type(e).__name__}: {e}")
+                # For non-TypeError exceptions, continue to next attempt
+                # but log more details for the last few attempts
+                if attempt_num >= len(fallback_attempts) - 2:
+                    logger.error(f"Critical error in attempt {attempt_num}: {e}", exc_info=True)
+                continue
+
+        # All attempts failed
+        logger.error(f"All {len(fallback_attempts)} model call attempts failed for {mode} mode")
+        return ("", False)
+
+    def _build_simple_inline_prompt(self, language: SupportedLanguage, before: str, after: str) -> str:
+        """Minimal prompt for fallback inline completion"""
+        lang = language.value if hasattr(language, "value") else str(language)
+        return (
+            f"Complete the next few tokens of {lang} code at [CURSOR_HERE]. "
+            f"Return ONLY the code to insert, no comments or prose.\n\n"
+            f"```{lang}\n{before}[CURSOR_HERE]{after}\n```"
+        )
+
+    async def _call_simple(self, prompt: str, language_str: str) -> Tuple[str, bool]:
+        """
+        Strict, tiny fallback using very small token/temperature and no exotic kwargs.
+        Reuses your robust _call_model by forcing minimal params via 'inline' mode limits.
+        """
+        # Temporarily enforce tiny limits regardless of global profile
+        global INLINE_MAX_TOKENS, INLINE_TIMEOUT, TEMPERATURE
+        orig_inline_tokens = INLINE_MAX_TOKENS
+        orig_inline_timeout = INLINE_TIMEOUT
+        orig_temperature = TEMPERATURE
         try:
-            # 1) Preferred kwargs signature (your current pattern)
-            result = await ai_model.generate_code_completion(
-                prompt=prompt, 
-                language=language_str, 
-                **kw
-            )
-            if isinstance(result, tuple) and len(result) == 2:
-                return result  # (text, success)
-            return (str(result or ""), True)
-            
-        except TypeError as e:
-            logger.debug(f"Model kwargs unsupported, falling back: {e}")
+            INLINE_MAX_TOKENS = min(64, orig_inline_tokens or 64)
+            INLINE_TIMEOUT = min(2, orig_inline_timeout or 2)
+            TEMPERATURE = 0.15
+            # language_str is already a plain string like "python"
+            return await self._call_model(prompt, language_str, config={}, mode="inline")
+        finally:
+            INLINE_MAX_TOKENS = orig_inline_tokens
+            INLINE_TIMEOUT = orig_inline_timeout
+            TEMPERATURE = orig_temperature
 
-        # 2) Fast fallback to minimal interface
-        try:
-            result = await ai_model.generate_code_completion(prompt, language_str)
-            if isinstance(result, tuple) and len(result) == 2:
-                return result
-            return (str(result or ""), True)
-        except Exception as e:
-            logger.warning(f"All model call patterns failed: {e}")
-            return ("", False)
-
+    
+    
     def _calculate_confidence(self, completion: str, processing_time: int, mode: str) -> float:
         """Fast confidence calculation"""
         if not completion.strip():
@@ -461,14 +591,45 @@ COMPLETION:"""
             logger.info(f"Generating {mode} completion for {lang_enum.value}")
             
             # Call model with optimizations
+            # completion_text, success = await self._call_model(
+            #     prompt, lang_enum.value, config, mode
+            # )
+            
+            # if not success or not completion_text:
+            #     processing_time = int((time.perf_counter() - start_time) * 1000)
+            #     logger.warning(f"Model call failed for {mode} mode in {processing_time}ms")
+            #     return "", processing_time, 0.0
+            
             completion_text, success = await self._call_model(
                 prompt, lang_enum.value, config, mode
             )
-            
-            if not success or not completion_text:
+
+            if (not success or not completion_text) and mode == "inline":
+                # --- SIMPLE INLINE FALLBACK ---
+                try:
+                    simple_prompt = self._build_simple_inline_prompt(
+                        lang_enum, context.get("before", ""), context.get("after", "")
+                    )
+                    completion_text, success = await self._call_simple(simple_prompt, lang_enum.value)
+                    if not success or not completion_text:
+                        processing_time = int((time.perf_counter() - start_time) * 1000)
+                        logger.warning(
+                            f"Primary + fallback failed for inline mode in {processing_time}ms"
+                        )
+                        return "", processing_time, 0.0
+                except Exception as e:
+                    processing_time = int((time.perf_counter() - start_time) * 1000)
+                    logger.warning(
+                        f"Inline fallback errored in {processing_time}ms: {e}"
+                    )
+                    return "", processing_time, 0.0
+
+            elif not success or not completion_text:
+                # Non-inline (menu) stays as-is
                 processing_time = int((time.perf_counter() - start_time) * 1000)
                 logger.warning(f"Model call failed for {mode} mode in {processing_time}ms")
                 return "", processing_time, 0.0
+
 
             # Post-process
             completion = self.post_process_completion(completion_text, lang_enum)

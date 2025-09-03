@@ -1,8 +1,8 @@
+from __future__ import annotations
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
-# from __future__ import annotations
 from pathlib import Path
 import os
 
@@ -36,11 +36,18 @@ class SupportedLanguage(str, Enum):
 EXTENSION_LANGUAGE : Dict[str, SupportedLanguage] = {
     ".py": SupportedLanguage.PYTHON,
     ".js": SupportedLanguage.JAVASCRIPT,
+    ".jsx":SupportedLanguage.JAVASCRIPT,
+    ".mjs":SupportedLanguage.JAVASCRIPT,
+    ".cjs":SupportedLanguage.JAVASCRIPT,
     ".ts": SupportedLanguage.TYPESCRIPT,
+    ".tsx":SupportedLanguage.TYPESCRIPT,
     ".java": SupportedLanguage.JAVA,
     ".cpp": SupportedLanguage.CPP,
     ".cc": SupportedLanguage.CPP,
     ".cxx": SupportedLanguage.CPP,
+    ".hpp":SupportedLanguage.CPP,
+    ".hh":SupportedLanguage.CPP,
+    ".hxx":SupportedLanguage.CPP,
     ".c": SupportedLanguage.C,
     ".cs": SupportedLanguage.CSHARP,
     ".go": SupportedLanguage.GO,
@@ -53,6 +60,7 @@ EXTENSION_LANGUAGE : Dict[str, SupportedLanguage] = {
     ".html": SupportedLanguage.HTML,
     ".css": SupportedLanguage.CSS,
     ".kotlin": SupportedLanguage.KOTLIN,
+    ".kts":SupportedLanguage.KOTLIN,
     ".dart": SupportedLanguage.DART
 }
 
@@ -108,33 +116,6 @@ class CloseChatRequest(BaseModel):
     user_id: str = Field(..., max_length=50, description="User identifier")
     save_to_database: bool = Field(default=True, description="Whether to save to database")
 
-
-# Code completion
-# class CodeCompletionRequest(BaseModel):
-#     text: str = Field(..., min_length=1, max_length=2000, description="Code context")
-#     session_id: Optional[str] = Field(default="code_completion", max_length=255)
-#     user_id: str = Field(..., max_length=50, description="User identifier")
-#     source: Optional[RequestSource] = RequestSource.AUTOCOMPLETE
-#     language: Optional[SupportedLanguage] = None
-#     file_path: Optional[str] = Field(None, max_length=500)
-#     cursor_position: Optional[Dict[str, int]] = Field(None, description="Cursor line/column position")
-#     context: Optional[Dict[str, Any]] = Field(None, description="Before/after code context")
-
-#     @field_validator("text")
-#     @classmethod
-#     def _non_empty_code(cls, v: str) -> str:
-#         if not v or not v.strip():
-#             raise ValueError("Code text cannot be empty")
-#         return v.strip()
-
-#     @field_validator("file_path", mode="after")
-#     @classmethod
-#     def _set_language_from_extension(cls, v: Optional[str], values: Dict[str, Any]) -> Optional[str]:
-#         if v:
-#             ext = os.path.splitext(v)[1].lower()
-#             if ext in EXTENSION_LANGUAGE:
-#                 values["language"] = EXTENSION_LANGUAGE[ext]
-#         return v
 
 class CodeCompletionRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="Code context")

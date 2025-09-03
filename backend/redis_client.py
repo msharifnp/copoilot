@@ -3,15 +3,10 @@ import json
 import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-
-# Optional: load .env (harmless if not installed)
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
-
+from dotenv import load_dotenv
 import redis
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +84,7 @@ class RedisConnection:
         """Consistent key format; pass user_id to avoid cross-user collisions."""
         return f"chat:{user_id}:{session_id}" if user_id else f"chat:{session_id}"
 
-    def set_with_expiry(self, key: str, value: str, expiry: int = 3600) -> bool:
+    def set_with_expiry(self, key: str, value: str, expiry: int = 36000) -> bool:
         """SET key with expiry (seconds)."""
         try:
             if self.client:

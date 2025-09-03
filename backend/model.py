@@ -238,25 +238,25 @@ class AIModelClient:
             logger.error("Code completion error: %s", e)
             return "", False
 
-    # async def _generate_simple_completion(self, prompt: str, language: str) -> str:
-    #     """Fallback simple completion"""
-    #     try:
-    #         simple_prompt = f"Complete this {language} code (only provide the completion):\n\n{prompt[-200:]}"
-    #         resp = await asyncio.wait_for(
-    #             asyncio.to_thread(
-    #                 self._model.generate_content,
-    #                 simple_prompt,
-    #                 generation_config={
-    #                     "temperature": 0.05,
-    #                     "max_output_tokens": min(int(os.getenv("SIMPLE_COMPLETION_MAX_TOKENS")), self._code_max_tokens),
-    #                 },
-    #             ),
-    #             timeout=min(int(os.getenv("SIMPLE_COMPLETION_TIMEOUT")), self._code_timeout),
-    #         )
-    #         return self._extract_text(resp)
-    #     except Exception as e:
-    #         logger.error("Simple completion error: %s", e)
-    #         return ""
+    async def _generate_simple_completion(self, prompt: str, language: str) -> str:
+        """Fallback simple completion"""
+        try:
+            simple_prompt = f"Complete this {language} code (only provide the completion):\n\n{prompt[-200:]}"
+            resp = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._model.generate_content,
+                    simple_prompt,
+                    generation_config={
+                        "temperature": 0.05,
+                        "max_output_tokens": min(int(os.getenv("SIMPLE_COMPLETION_MAX_TOKENS")), self._code_max_tokens),
+                    },
+                ),
+                timeout=min(int(os.getenv("SIMPLE_COMPLETION_TIMEOUT")), self._code_timeout),
+            )
+            return self._extract_text(resp)
+        except Exception as e:
+            logger.error("Simple completion error: %s", e)
+            return ""
 
     async def process_file_content(self, file_content: str, prompt: str = "Analyze this file content and provide insights:") -> str:
         """Process file content using .env settings"""

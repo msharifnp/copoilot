@@ -70,15 +70,25 @@ export function activate(context: vscode.ExtensionContext) {
 
       try {
         vscode.window.showInformationMessage("Testing completion endpoint...");
-        
+
+        // In your VS Code extension, send more context:
         const document = editor.document;
         const position = editor.selection.active;
+
+        // --- Expanded context (fix: use offsetAt)
+        const fullText = document.getText();
+        const offset = document.offsetAt(position);
+        const beforeText = fullText.slice(0, offset);
+        const afterText  = fullText.slice(offset);
         
-        // Get some context
-        const beforeText = document.getText(new vscode.Range(
-          new vscode.Position(Math.max(0, position.line - 5), 0), 
-          position
-        ));
+        // const document = editor.document;
+        // const position = editor.selection.active;
+        
+        // // Get some context
+        // const beforeText = document.getText(new vscode.Range(
+        //   new vscode.Position(Math.max(0, position.line - 5), 0), 
+        //   position
+        // ));
         
         console.log(`[RaaS Debug] Testing completion for language: ${document.languageId}`);
         
@@ -87,7 +97,7 @@ export function activate(context: vscode.ExtensionContext) {
           language: document.languageId,
           context: {
             before: beforeText,
-            after: "",
+            after: afterText,
             line: position.line,
             mode: "test"
           },

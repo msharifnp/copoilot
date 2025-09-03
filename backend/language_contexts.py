@@ -17,7 +17,10 @@ def get_language_contexts():
                         "completion_prompt": (
                             "You are a Python code completion assistant. "
                             "Complete the following Python code snippet with syntactically correct and contextually appropriate code. "
+                            "Strictly follow existing indentation. After block starters "
+                            "like 'def', 'class', 'if', 'elif', 'else', 'for', 'while', 'try', 'except', 'with', "
                             "Provide only the completion code without explanations:"
+                            "start a NEW LINE and indent one level more than the previous line."
                         ),
                         "config": {"temperature": temperature, "top_p": top_p, "max_tokens": max_tokens},
                     },

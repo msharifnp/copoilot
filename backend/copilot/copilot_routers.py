@@ -56,7 +56,7 @@ async def chat_form(
     text: str = Form(...),
     user_id: str = Form(...),
     files: List[UploadFile] = File(None),
-    session_id: Optional[str] = Form(None),  # Changed: make it optional and from Form
+    session_id: Optional[str] = Form(None),  
     inline_files: Optional[str] = Form(None),
 ):
     """
